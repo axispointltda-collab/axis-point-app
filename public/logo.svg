@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
+  <!-- AxisPoint Professional Logo SVG -->
+  <g transform="translate(100, 100)">
+    <!-- 
+      Outer Arc: Navy (#1B3A5C)
+      Open at 10-11 o'clock position
+    -->
+    <path 
+      d="M -32,-74 
+         A 82,82 0 1,1 -74,-32" 
+      fill="none" 
+      stroke="#1B3A5C" 
+      stroke-width="14" 
+      stroke-linecap="round"
+    />
+    
+    <!-- Navy Arrowhead (pointing along the path of the circle) -->
+    <path d="M -15,-88 L -32,-74 L -50,-80 Z" fill="#1B3A5C"/>
+    
+    <!-- === X Interior === -->
+    
+    <!-- Navy Diagonal (top-left to bottom-right) -->
+    <line x1="-50" y1="-50" x2="50" y2="50" 
+      stroke="#1B3A5C" stroke-width="18" stroke-linecap="round"/>
+    
+    <!-- Teal Diagonal (bottom-left to top-right) -->
+    <line x1="-50" y1="50" x2="40" y2="-40" 
+      stroke="#1B9E9E" stroke-width="18" stroke-linecap="round"/>
+    
+    <!-- Teal Arrowhead (Sharp triangle at top-right) -->
+    <path d="M 35,-60 L 60,-60 L 60,-35 Z" fill="#1B9E9E" />
+  </g>
+</svg>
