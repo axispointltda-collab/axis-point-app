@@ -7,9 +7,10 @@ import { getBrasiliaNow, formatBrasilia } from '../lib/dateUtils';
 interface PunchClockProps {
   onPunch: () => void;
   isClockedIn: boolean;
+  nextPunchLabel?: string;
 }
 
-export default function PunchClock({ onPunch, isClockedIn }: PunchClockProps) {
+export default function PunchClock({ onPunch, isClockedIn, nextPunchLabel }: PunchClockProps) {
   const [now, setNow] = useState(getBrasiliaNow());
 
   useEffect(() => {
@@ -77,10 +78,15 @@ export default function PunchClock({ onPunch, isClockedIn }: PunchClockProps) {
           </AnimatePresence>
 
           <div className="flex flex-col items-center">
-            <span className="text-xl font-display font-black uppercase tracking-[0.15em]">
-              {isClockedIn ? 'Registrar Saída' : 'Registrar Entrada'}
+            <span className={`text-[10px] font-black uppercase tracking-[0.3em] mb-1 opacity-60 ${isClockedIn ? 'text-red-400' : 'text-teal-100'}`}>
+              Próximo Registro
             </span>
-            <span className={`text-[10px] font-bold uppercase tracking-[0.2em] opacity-60`}>
+            <span className="text-2xl font-display font-black uppercase tracking-[0.1em] text-center leading-tight">
+              {nextPunchLabel ? nextPunchLabel : (isClockedIn ? 'Saída' : 'Entrada')}
+            </span>
+            <span className={`text-[9px] font-bold uppercase tracking-[0.2em] mt-2 py-1 px-3 rounded-full border ${
+              isClockedIn ? 'bg-red-100/20 border-red-200/30' : 'bg-white/10 border-white/20'
+            }`}>
               Bater Ponto Agora
             </span>
           </div>

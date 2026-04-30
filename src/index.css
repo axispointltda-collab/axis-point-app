@@ -18,3 +18,30 @@ body {
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  
+  body {
+    background-color: white !important;
+  }
+  
+  .print-only {
+    display: block !important;
+  }
+
+  .print-shadow-none {
+    box-shadow: none !important;
+    border: 1px solid #eee !important;
+  }
+
+  @page {
+    margin: 2cm;
+  }
+}
+
+.print-only {
+  display: none;
+}

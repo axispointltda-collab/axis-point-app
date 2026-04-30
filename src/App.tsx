@@ -2,7 +2,7 @@ import React, { useState, useMemo, FormEvent, useEffect, useRef } from 'react';
 import Calendar from './components/Calendar';
 import PunchClock from './components/PunchClock';
 import AuthView from './components/AuthView';
-import { isSameDay, setHours, setMinutes, setSeconds } from 'date-fns';
+import { isSameDay, setHours, setMinutes, setSeconds, eachDayOfInterval, parseISO, subDays, differenceInHours } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -22,38 +22,66 @@ import {
   Monitor,
   ArrowLeft,
   Camera,
-  Image as ImageIcon
+  ChevronDown,
+  FileText,
+  Download,
+  AlertTriangle,
+  Image as ImageIcon,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import { getBrasiliaNow, formatBrasilia } from './lib/dateUtils';
+import { supabase } from './supabase';
 
 interface PunchRecord {
   id: string;
   type: 'in' | 'out';
   timestamp: Date;
-  isManual?: boolean;
-  ownerEmail?: string;
+  is_manual?: boolean;
+  is_overtime?: boolean;
+  employee_id: string;
+  company_id: string;
 }
 
 interface Company {
   id: string;
   name: string;
-  adminEmail: string;
+  admin_email: string;
   password?: string;
 }
 
 interface Employee {
   id: string;
+  company_id?: string;
+  companyId?: string;
   name: string;
   email: string;
-  companyId: string;
   password?: string;
   photo?: string;
+  work_start?: string;
+  work_end?: string;
+  lunch_duration?: number;
+  is_12x36?: boolean;
 }
 
 interface FullPunchRecord extends PunchRecord {
   employeeId: string;
   employeeName: string;
 }
+
+// Helpers para labels de ponto
+const getPunchLabel = (index: number) => {
+  const hour = getBrasiliaNow().getHours();
+  const mealLabel = (hour >= 17 || hour < 5) ? "Janta" : "Almoço";
+
+  switch (index) {
+    case 0: return "Entrada";
+    case 1: return `Início ${mealLabel}`;
+    case 2: return `Retorno ${mealLabel}`;
+    case 3: return "Saída Final";
+    default: return index % 2 === 0 ? "Entrada Extra" : "Saída Extra";
+  }
+};
 
 export default function App() {
   const [user, setUser] = useState<string | null>(() => localStorage.getItem('flow_user'));
@@ -62,32 +90,100 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'clock' | 'history' | 'monitor' | 'team' | 'admin'>('clock');
   const [selectedDate, setSelectedDate] = useState(getBrasiliaNow());
   
-  // Real Records
-  const [records, setRecords] = useState<PunchRecord[]>(() => {
-    const saved = localStorage.getItem('flow_records');
-    if (!saved) return [];
-    try {
-      return JSON.parse(saved).map((r: any) => ({ ...r, timestamp: new Date(r.timestamp) }));
-    } catch { return []; }
-  });
+  const [records, setRecords] = useState<PunchRecord[]>([]);
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [allPunchRecords, setAllPunchRecords] = useState<FullPunchRecord[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const [companies, setCompanies] = useState<Company[]>(() => {
-    const saved = localStorage.getItem('flow_companies');
-    return saved ? JSON.parse(saved) : [];
-  });
+  // Initial Fetch from Supabase
+  useEffect(() => {
+    const fetchData = async () => {
+      setIsLoading(true);
+      try {
+        // Fetch Companies
+        const { data: dbCompanies } = await supabase.from('companies').select('*');
+        if (dbCompanies) setCompanies(dbCompanies);
 
-  const [employees, setEmployees] = useState<Employee[]>(() => {
-    const saved = localStorage.getItem('flow_employees');
-    return saved ? JSON.parse(saved) : [];
-  });
+        // Fetch Employees
+        const { data: dbEmployees } = await supabase.from('employees').select('*');
+        if (dbEmployees) setEmployees(dbEmployees);
 
-  const [allPunchRecords, setAllPunchRecords] = useState<FullPunchRecord[]>(() => {
-    const saved = localStorage.getItem('flow_all_records');
-    if (!saved) return [];
-    try {
-      return JSON.parse(saved).map((r: any) => ({ ...r, timestamp: new Date(r.timestamp) }));
-    } catch { return []; }
-  });
+        // Fetch Records
+        const { data: dbRecords } = await supabase.from('punch_records').select('*');
+        if (dbRecords) {
+          const formattedRecords = dbRecords.map(r => {
+            const employee = dbEmployees?.find(e => e.id === r.employee_id);
+            return {
+              ...r,
+              timestamp: new Date(r.timestamp),
+              employeeId: r.employee_id || r.employeeId,
+              employeeName: employee ? employee.name : 'Desconhecido'
+            };
+          });
+          setAllPunchRecords(formattedRecords as any);
+          
+          // Filter for current user if applicable
+          if (userRole === 'employee' && user) {
+            const employee = dbEmployees?.find(e => e.email.toLowerCase() === user.toLowerCase());
+            if (employee) {
+              setRecords(formattedRecords.filter(r => r.employee_id === employee.id) as any);
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching from Supabase:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchData();
+  }, [user, userRole]);
+
+  // Migration Helper: Push LocalStorage to Supabase (Run once)
+  const migrateToCloud = async () => {
+    const localCompanies = JSON.parse(localStorage.getItem('flow_companies') || '[]');
+    const localEmployees = JSON.parse(localStorage.getItem('flow_employees') || '[]');
+    const localRecords = JSON.parse(localStorage.getItem('flow_all_records') || '[]');
+
+    if (localCompanies.length > 0) {
+      await supabase.from('companies').upsert(localCompanies.map((c: any) => ({
+        id: c.id,
+        name: c.name,
+        admin_email: c.adminEmail,
+        password: c.password
+      })));
+    }
+
+    if (localEmployees.length > 0) {
+      await supabase.from('employees').upsert(localEmployees.map((e: any) => ({
+        id: e.id,
+        company_id: e.companyId,
+        name: e.name,
+        email: e.email,
+        password: e.password,
+        photo: e.photo
+      })));
+    }
+
+    if (localRecords.length > 0) {
+      await supabase.from('punch_records').upsert(localRecords.map((r: any) => ({
+        id: r.id,
+        employee_id: r.employeeId,
+        company_id: r.companyId, // Assuming companyId is in record or derived
+        type: r.type,
+        timestamp: r.timestamp,
+        is_manual: r.isManual
+      })));
+    }
+    
+    // Clear local once done (re-fetch will happen)
+    localStorage.removeItem('flow_companies');
+    localStorage.removeItem('flow_employees');
+    localStorage.removeItem('flow_all_records');
+    window.location.reload();
+  };
 
   // Sync to localStorage
   useEffect(() => {
@@ -108,9 +204,42 @@ export default function App() {
   
   // Manual Entry States
   const [showManualForm, setShowManualForm] = useState(false);
-  const [manualTime, setManualTime] = useState('09:00');
+  const [isCreateFormExpanded, setIsCreateFormExpanded] = useState(false);
+  const [manualTime, setManualTime] = useState(formatBrasilia(new Date(), 'HH:mm'));
   const [manualType, setManualType] = useState<'in' | 'out'>('in');
   const [editingId, setEditingId] = useState<string | null>(null);
+
+  // Filter States
+  const [filterStartDate, setFilterStartDate] = useState(() => {
+    const d = new Date();
+    d.setDate(1);
+    return d.toISOString().split('T')[0];
+  });
+  const [filterEndDate, setFilterEndDate] = useState(() => {
+    const d = new Date();
+    return d.toISOString().split('T')[0];
+  });
+
+  const handleExportExcel = () => {
+    const csvContent = "data:text/csv;charset=utf-8," 
+      + "Data,Funcionario,Tipo,Horário\n"
+      + filteredPunchRecords.map(r => {
+          const empName = employees.find(e => (e.id === r.employee_id || e.id === r.employeeId))?.name || '---';
+          return `${formatBrasilia(r.timestamp, 'dd/MM/yyyy')},${empName},${r.type === 'in' ? 'Entrada' : 'Saída'},${formatBrasilia(r.timestamp, 'HH:mm:ss')}`;
+        }).join("\n");
+
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `espelho_ponto_${filterStartDate}_a_${filterEndDate}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleExportPDF = () => {
+    window.print();
+  };
 
   // Company/Employee Creation States
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(() => localStorage.getItem('flow_selectedCompanyId'));
@@ -118,11 +247,18 @@ export default function App() {
   const [newCompanyName, setNewCompanyName] = useState('');
   const [newCompanyEmail, setNewCompanyEmail] = useState('');
   const [newCompanyPassword, setNewCompanyPassword] = useState('');
+  const [editCompanyName, setEditCompanyName] = useState('');
+  const [editCompanyEmail, setEditCompanyEmail] = useState('');
+  const [editCompanyPassword, setEditCompanyPassword] = useState('');
   const [selectedCompanyForEmployee, setSelectedCompanyForEmployee] = useState('');
   const [newEmployeeName, setNewEmployeeName] = useState('');
   const [newEmployeeEmail, setNewEmployeeEmail] = useState('');
   const [newEmployeePassword, setNewEmployeePassword] = useState('');
   const [newEmployeePhoto, setNewEmployeePhoto] = useState<string | null>(null);
+  const [newEmployeeWorkStart, setNewEmployeeWorkStart] = useState('08:00');
+  const [newEmployeeWorkEnd, setNewEmployeeWorkEnd] = useState('18:00');
+  const [newEmployeeLunchDuration, setNewEmployeeLunchDuration] = useState('60');
+  const [newEmployeeIs12x36, setNewEmployeeIs12x36] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -131,6 +267,13 @@ export default function App() {
   const [editEmployeeEmail, setEditEmployeeEmail] = useState('');
   const [editEmployeePassword, setEditEmployeePassword] = useState('');
   const [editEmployeePhoto, setEditEmployeePhoto] = useState<string | null>(null);
+  const [editEmployeeWorkStart, setEditEmployeeWorkStart] = useState('08:00');
+  const [editEmployeeWorkEnd, setEditEmployeeWorkEnd] = useState('18:00');
+  const [editEmployeeLunchDuration, setEditEmployeeLunchDuration] = useState('60');
+  const [editEmployeeIs12x36, setEditEmployeeIs12x36] = useState(false);
+  const [showEditPassword, setShowEditPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showCompanyEditPassword, setShowCompanyEditPassword] = useState(false);
   const editFileInputRef = useRef<HTMLInputElement>(null);
 
   const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -161,35 +304,107 @@ export default function App() {
     setEditEmployeeEmail(emp.email);
     setEditEmployeePassword(emp.password || '');
     setEditEmployeePhoto(emp.photo || null);
+    setEditEmployeeWorkStart(emp.work_start || '08:00');
+    setEditEmployeeWorkEnd(emp.work_end || '18:00');
+    setEditEmployeeLunchDuration(String(emp.lunch_duration || 60));
+    setEditEmployeeIs12x36(emp.is_12x36 || false);
   };
 
-  const handleUpdateEmployee = (e: FormEvent) => {
+  const handleUpdateEmployee = async (e: FormEvent) => {
     e.preventDefault();
+    
+    await supabase.from('employees').update({
+      name: editEmployeeName,
+      email: editEmployeeEmail,
+      password: editEmployeePassword,
+      photo: editEmployeePhoto || null,
+      work_start: editEmployeeWorkStart,
+      work_end: editEmployeeWorkEnd,
+      lunch_duration: parseInt(editEmployeeLunchDuration),
+      is_12x36: editEmployeeIs12x36
+    }).eq('id', editingEmployeeId);
+
     setEmployees(prev => prev.map(emp => 
-      emp.id === editingEmployeeId ? {
-        ...emp,
-        name: editEmployeeName,
-        email: editEmployeeEmail,
-        password: editEmployeePassword,
-        photo: editEmployeePhoto || undefined
-      } : emp
+      emp.id === editingEmployeeId 
+        ? { 
+            ...emp, 
+            name: editEmployeeName, 
+            email: editEmployeeEmail, 
+            password: editEmployeePassword, 
+            photo: editEmployeePhoto || undefined,
+            work_start: editEmployeeWorkStart,
+            work_end: editEmployeeWorkEnd,
+            lunch_duration: parseInt(editEmployeeLunchDuration),
+            is_12x36: editEmployeeIs12x36
+          }
+        : emp
     ));
 
     // Fix historical names to match new names (optional syncing)
     setAllPunchRecords(prev => prev.map(r => 
-      r.employeeId === editingEmployeeId ? { ...r, employeeName: editEmployeeName } : r
+      (r.employeeId || r.employee_id) === editingEmployeeId ? { ...r, employeeName: editEmployeeName } : r
     ));
 
     setEditingEmployeeId(null);
+    alert('Funcionário atualizado com sucesso!');
   };
 
-  const handleLogin = (email: string) => {
+  const handleUpdateCompany = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!selectedCompanyId) return;
+
+    try {
+      const updateData: any = {
+        name: editCompanyName,
+        admin_email: editCompanyEmail,
+      };
+      if (editCompanyPassword) {
+        updateData.password = editCompanyPassword;
+      }
+
+      const { error } = await supabase.from('companies').update(updateData).eq('id', selectedCompanyId);
+      if (error) throw error;
+
+      setCompanies(prev => prev.map(c => 
+        c.id === selectedCompanyId 
+          ? { ...c, name: editCompanyName, admin_email: editCompanyEmail, password: editCompanyPassword || c.password } 
+          : c
+      ));
+
+      alert('Cadastro da empresa atualizado com sucesso!');
+    } catch (err) {
+      console.error(err);
+      alert('Erro ao atualizar cadastro.');
+    }
+  };
+
+  const handleDeleteCompany = async (id: string, name: string) => {
+    if (window.confirm(`Tem certeza que deseja excluir permanentemente a empresa "${name}"?`)) {
+      try {
+        const { error } = await supabase.from('companies').delete().eq('id', id);
+        if (error) throw error;
+        setCompanies(prev => prev.filter(c => c.id !== id));
+        if (selectedCompanyId === id) {
+           setSelectedCompanyId(null);
+           setActiveTab('admin');
+        }
+        alert('Empresa excluída com sucesso.');
+      } catch (err: any) {
+        console.error(err);
+        alert('Erro ao excluir empresa: ' + err.message);
+      }
+    }
+  };
+
+
+
+  const handleLogin = async (email: string) => {
     setUser(email);
     localStorage.setItem('flow_user', email);
     const lowerEmail = email.toLowerCase();
     
-    // Check if Super Admin
-    if (lowerEmail === 'admin@flow.com') {
+    // 1. Check Super Admin (Hardcoded for now as per current logic)
+    if (lowerEmail === 'adminaxispoint@gmail.com') {
       setIsAdmin(true);
       localStorage.setItem('flow_isAdmin', 'true');
       setUserRole('admin');
@@ -198,8 +413,13 @@ export default function App() {
       return;
     }
 
-    // Check if Company
-    const company = companies.find(c => c.adminEmail.toLowerCase() === lowerEmail);
+    // 2. Check Companies in Supabase
+    const { data: company } = await supabase
+      .from('companies')
+      .select('*')
+      .eq('admin_email', lowerEmail)
+      .single();
+
     if (company) {
       setIsAdmin(true);
       localStorage.setItem('flow_isAdmin', 'true');
@@ -207,16 +427,30 @@ export default function App() {
       localStorage.setItem('flow_role', 'company');
       setSelectedCompanyId(company.id);
       localStorage.setItem('flow_selectedCompanyId', company.id);
-      setActiveTab('monitor');
+      setActiveTab('team');
       return;
     }
 
-    // Fallback to Employee
-    setIsAdmin(false);
-    localStorage.setItem('flow_isAdmin', 'false');
-    setUserRole('employee');
-    localStorage.setItem('flow_role', 'employee');
-    setActiveTab('clock');
+    // 3. Check Employees in Supabase
+    const { data: employee } = await supabase
+      .from('employees')
+      .select('*')
+      .eq('email', lowerEmail)
+      .single();
+
+    if (employee) {
+      setIsAdmin(false);
+      localStorage.setItem('flow_isAdmin', 'false');
+      setUserRole('employee');
+      localStorage.setItem('flow_role', 'employee');
+      setSelectedCompanyId(employee.company_id);
+      localStorage.setItem('flow_selectedCompanyId', employee.company_id);
+      setActiveTab('clock');
+      return;
+    }
+
+    // Fallback or Error
+    console.warn('User not found in database');
   };
 
   const handleLogout = () => {
@@ -231,46 +465,64 @@ export default function App() {
     // We keep companies/records saved for next login
   };
 
-  const handleCreateCompany = (e: FormEvent) => {
+  const handleCreateCompany = async (e: FormEvent) => {
     e.preventDefault();
-    const newCompany: Company = {
-      id: Math.random().toString(36).substring(7),
+    const { data: newCompany, error } = await supabase.from('companies').insert({
       name: newCompanyName,
-      adminEmail: newCompanyEmail,
+      admin_email: newCompanyEmail,
       password: newCompanyPassword,
-    };
-    setCompanies(prev => [...prev, newCompany]);
-    setNewCompanyName('');
-    setNewCompanyEmail('');
-    setNewCompanyPassword('');
+    }).select().single();
+
+    if (newCompany) {
+      setCompanies(prev => [...prev, newCompany as any]);
+      setNewCompanyName('');
+      setNewCompanyEmail('');
+      setNewCompanyPassword('');
+    } else {
+      console.error('Error creating company:', error);
+    }
   };
 
-  const handleCreateEmployee = (e: FormEvent) => {
+  const handleCreateEmployee = async (e: FormEvent) => {
     e.preventDefault();
-    // Use selectedCompanyId if available (from dashboard) or fallback to selector
-    const targetCompanyId = selectedCompanyId || selectedCompanyForEmployee;
-    if (!targetCompanyId) return;
-
-    const newEmployee: Employee = {
-      id: Math.random().toString(36).substring(7),
+    const companyId = selectedCompanyId || selectedCompanyForEmployee;
+    const { data: newEmployee, error } = await supabase.from('employees').insert({
+      company_id: companyId,
       name: newEmployeeName,
       email: newEmployeeEmail,
-      companyId: targetCompanyId,
       password: newEmployeePassword,
-      photo: newEmployeePhoto || undefined,
-    };
-    setEmployees(prev => [...prev, newEmployee]);
-    setNewEmployeeName('');
-    setNewEmployeeEmail('');
-    setNewEmployeePassword('');
-    setNewEmployeePhoto(null);
+      photo: newEmployeePhoto || null,
+      work_start: newEmployeeWorkStart,
+      work_end: newEmployeeWorkEnd,
+      lunch_duration: parseInt(newEmployeeLunchDuration),
+      is_12x36: newEmployeeIs12x36
+    }).select().single();
+
+    if (newEmployee) {
+      setEmployees(prev => [...prev, {
+        ...newEmployee,
+        work_start: newEmployeeWorkStart,
+        work_end: newEmployeeWorkEnd,
+        lunch_duration: parseInt(newEmployeeLunchDuration),
+        is_12x36: newEmployeeIs12x36
+      } as any]);
+      setNewEmployeeName('');
+      setNewEmployeeEmail('');
+      setNewEmployeePassword('');
+      setNewEmployeePhoto(null);
+      setNewEmployeeWorkStart('08:00');
+      setNewEmployeeWorkEnd('18:00');
+      setNewEmployeeLunchDuration('60');
+    } else {
+      console.error('Error creating employee:', error);
+    }
   };
 
   // Registros são criados apenas por ações reais de ponto (entrada/saída)
 
   const myRecords = useMemo(() => {
-    return records.filter(r => r.ownerEmail === user);
-  }, [records, user]);
+    return records;
+  }, [records]);
 
   const isClockedIn = useMemo(() => {
     if (myRecords.length === 0) return false;
@@ -292,6 +544,11 @@ export default function App() {
     return Array.from(days);
   }, [myRecords]);
 
+  const punchesTodayCount = useMemo(() => {
+    const today = getBrasiliaNow();
+    return myRecords.filter(r => isSameDay(r.timestamp, today)).length;
+  }, [myRecords]);
+
   const groupedRecords = useMemo(() => {
     const sorted = [...myRecords].sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
     const groups: { [key: string]: PunchRecord[] } = {};
@@ -305,71 +562,150 @@ export default function App() {
     return Object.entries(groups).sort((a, b) => b[0].localeCompare(a[0]));
   }, [myRecords]);
 
-  const handlePunch = () => {
+  const handlePunch = async () => {
     const now = getBrasiliaNow();
-    const newRecord: PunchRecord = {
-      id: Math.random().toString(36).substring(7),
-      type: isClockedIn ? 'out' : 'in',
-      timestamp: now,
-      ownerEmail: user || undefined,
-    };
-    setRecords(prev => [...prev, newRecord]);
+    const type = isClockedIn ? 'out' : 'in';
+    const currentEmployee = employees.find(e => e.email.toLowerCase() === user?.toLowerCase());
     
-    // Sync with global logs for company view real-time demo
-    if (userRole === 'employee') {
-      const currentEmployee = employees.find(e => e.email.toLowerCase() === user?.toLowerCase());
-      if (currentEmployee) {
+    if (!currentEmployee) {
+      alert("Erro: Conta atual não é um perfil de funcionário válido para bater ponto.");
+      return;
+    }
+
+    const checkIsOvertime = (time: Date, punchType: string) => {
+      if (!currentEmployee.work_start || !currentEmployee.work_end) return false;
+      
+      const [startH, startM] = currentEmployee.work_start.split(':').map(Number);
+      const [endH, endM] = currentEmployee.work_end.split(':').map(Number);
+      
+      const startTime = setSeconds(setMinutes(setHours(new Date(time), startH), startM), 0);
+      const endTime = setSeconds(setMinutes(setHours(new Date(time), endH), endM), 0);
+
+      // Simple checks:
+      if (punchType === 'in' && time.getTime() < startTime.getTime() - 10 * 60000) { // 10 min early threshold
+        return true;
+      }
+      if (punchType === 'out' && time.getTime() > endTime.getTime() + 10 * 60000) { // 10 min late threshold
+        return true;
+      }
+
+      // 12x36 logic: If today is a rest day (worked yesterday), any punch is overtime
+      if (currentEmployee.is_12x36) {
+        const yesterday = subDays(time, 1);
+        const workedYesterday = allPunchRecords.some(r => 
+          (r.employeeId === currentEmployee.id || r.employee_id === currentEmployee.id) && 
+          isSameDay(new Date(r.timestamp), yesterday)
+        );
+        if (workedYesterday) return true;
+      }
+
+      return false;
+    };
+
+    const isOvertime = checkIsOvertime(now, type);
+
+    const { data: newRecord, error } = await supabase.from('punch_records').insert({
+      employee_id: currentEmployee.id,
+      company_id: currentEmployee.company_id,
+      type: type,
+      timestamp: now.toISOString(),
+      is_manual: false,
+      is_overtime: isOvertime
+    }).select().single();
+
+    if (newRecord) {
+      const formattedRecord: PunchRecord = {
+        ...newRecord,
+        timestamp: new Date(newRecord.timestamp)
+      } as any;
+
+      setRecords(prev => [...prev, formattedRecord]);
+      
+      const fullRecord: FullPunchRecord = {
+        ...formattedRecord,
+        employeeId: currentEmployee.id,
+        employeeName: currentEmployee.name,
+      };
+      setAllPunchRecords(prev => [fullRecord, ...prev]);
+      setSelectedDate(now);
+    } else {
+      console.error('Error punching clock:', error);
+    }
+  };
+
+  const handleAddManual = async () => {
+    const [hours, minutes] = manualTime.split(':').map(Number);
+    let targetDate = setSeconds(setMinutes(setHours(selectedDate, hours), minutes), 0);
+    const currentEmployee = employees.find(e => e.email.toLowerCase() === user?.toLowerCase());
+    
+    if (!currentEmployee) {
+      alert("Erro: Faça login como funcionário para registrar um ponto. Conta de administração principal não pode registrar horários.");
+      return;
+    }
+
+    const checkIsOvertime = (time: Date, punchType: string) => {
+      if (!currentEmployee.work_start || !currentEmployee.work_end) return false;
+      const [startH, startM] = currentEmployee.work_start.split(':').map(Number);
+      const [endH, endM] = currentEmployee.work_end.split(':').map(Number);
+      const startTime = setSeconds(setMinutes(setHours(new Date(time), startH), startM), 0);
+      const endTime = setSeconds(setMinutes(setHours(new Date(time), endH), endM), 0);
+
+      if (punchType === 'in' && time.getTime() < startTime.getTime() - 10 * 60000) return true;
+      if (punchType === 'out' && time.getTime() > endTime.getTime() + 10 * 60000) return true;
+
+      if (currentEmployee.is_12x36) {
+        const yesterday = subDays(time, 1);
+        const workedYesterday = allPunchRecords.some(r => 
+          (r.employeeId === currentEmployee.id || r.employee_id === currentEmployee.id) && 
+          isSameDay(new Date(r.timestamp), yesterday)
+        );
+        if (workedYesterday) return true;
+      }
+      return false;
+    };
+
+    const isOvertime = checkIsOvertime(targetDate, manualType);
+
+    if (editingId) {
+      const { data: updatedRecord, error } = await supabase.from('punch_records').update({
+        timestamp: targetDate.toISOString(),
+        type: manualType,
+        is_manual: true,
+        is_overtime: isOvertime
+      }).eq('id', editingId).select().single();
+
+      if (updatedRecord) {
+        setRecords(prev => prev.map(r => r.id === editingId ? { ...updatedRecord, timestamp: new Date(updatedRecord.timestamp) } : r));
+        setAllPunchRecords(prev => prev.map(r => r.id === editingId ? { ...updatedRecord, timestamp: new Date(updatedRecord.timestamp), employeeId: currentEmployee.id, employeeName: currentEmployee.name } : r));
+      }
+      setEditingId(null);
+    } else {
+      const { data: newRecord, error } = await supabase.from('punch_records').insert({
+        employee_id: currentEmployee.id,
+        company_id: currentEmployee.company_id,
+        type: manualType,
+        timestamp: targetDate.toISOString(),
+        is_manual: true,
+        is_overtime: isOvertime
+      }).select().single();
+
+      if (newRecord) {
+        const formattedRecord = { ...newRecord, timestamp: new Date(newRecord.timestamp) } as any;
+        setRecords(prev => [...prev, formattedRecord]);
+        
         const fullRecord: FullPunchRecord = {
-          ...newRecord,
+          ...formattedRecord,
           employeeId: currentEmployee.id,
           employeeName: currentEmployee.name,
         };
         setAllPunchRecords(prev => [fullRecord, ...prev]);
-      }
-    }
-    
-    setSelectedDate(now);
-  };
-
-  const handleAddManual = () => {
-    const [hours, minutes] = manualTime.split(':').map(Number);
-    let targetDate = setSeconds(setMinutes(setHours(selectedDate, hours), minutes), 0);
-    
-    if (editingId) {
-      setRecords(prev => prev.map(r => 
-        r.id === editingId ? { ...r, timestamp: targetDate, type: manualType, isManual: true } : r
-      ));
-      
-      // Update in all records too
-      setAllPunchRecords(prev => prev.map(r => 
-        r.id === editingId ? { ...r, timestamp: targetDate, type: manualType, isManual: true } : r
-      ));
-      
-      setEditingId(null);
-    } else {
-      const newRecord: PunchRecord = {
-        id: Math.random().toString(36).substring(7),
-        type: manualType,
-        timestamp: targetDate,
-        isManual: true,
-        ownerEmail: user || undefined,
-      };
-      setRecords(prev => [...prev, newRecord]);
-
-      // Sync with global logs for company view if acting as employee
-      if (userRole === 'employee') {
-        const currentEmployee = employees.find(e => e.email.toLowerCase() === user?.toLowerCase());
-        if (currentEmployee) {
-          const fullRecord: FullPunchRecord = {
-            ...newRecord,
-            employeeId: currentEmployee.id,
-            employeeName: currentEmployee.name,
-          };
-          setAllPunchRecords(prev => [fullRecord, ...prev]);
-        }
+      } else if (error) {
+        alert("Erro ao registrar ponto: " + error.message);
+        return;
       }
     }
     setShowManualForm(false);
+    setActiveTab('history');
   };
 
   const startEdit = (record: PunchRecord) => {
@@ -379,38 +715,94 @@ export default function App() {
     setShowManualForm(true);
   };
 
-  const removeRecord = (id: string) => {
-    setRecords(prev => prev.filter(r => r.id !== id));
+  const removeRecord = async (id: string) => {
+    const { error } = await supabase.from('punch_records').delete().eq('id', id);
+    if (!error) {
+      setRecords(prev => prev.filter(r => r.id !== id));
+      setAllPunchRecords(prev => prev.filter(r => r.id !== id));
+    }
   };
 
   // Lists
   const filteredPunchRecords = useMemo(() => {
-    if (!selectedCompanyId) return allPunchRecords;
-    const companyEmployees = employees.filter(e => e.companyId === selectedCompanyId).map(e => e.id);
-    return allPunchRecords.filter(r => companyEmployees.includes(r.employeeId));
-  }, [allPunchRecords, employees, selectedCompanyId]);
+    let records = allPunchRecords;
+    if (userRole === 'company' && user) {
+      const company = companies.find(c => c.email === user);
+      if (company) {
+        records = allPunchRecords.filter(r => (r.company_id || r.companyId) === company.id);
+      }
+    } else if (selectedCompanyId) {
+      records = allPunchRecords.filter(r => (r.company_id || r.companyId) === selectedCompanyId);
+    }
+    
+    // Apply Date Range Filter
+    return records.filter(r => {
+      const recordDate = new Date(r.timestamp).toISOString().split('T')[0];
+      return recordDate >= filterStartDate && recordDate <= filterEndDate;
+    }).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+  }, [allPunchRecords, selectedCompanyId, userRole, user, companies, filterStartDate, filterEndDate]);
 
   const employeeDetailedRecords = useMemo(() => {
     if (!selectedEmployeeForDetail) return [];
-    const raw = allPunchRecords
-      .filter(r => r.employeeId === selectedEmployeeForDetail)
-      .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+    
+    const employee = employees.find(e => e.id === selectedEmployeeForDetail);
+    if (!employee) return [];
+
+    const minLunch = employee.lunch_duration || 60;
+    const start = parseISO(filterStartDate);
+    const end = parseISO(filterEndDate);
+
+    // Get all records for this employee (even outside range to check for patterns)
+    const allEmployeeRecords = allPunchRecords
+      .filter(r => (r.employee_id === selectedEmployeeForDetail || r.employeeId === selectedEmployeeForDetail))
+      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+    const days = eachDayOfInterval({ start, end });
+    const groups: { 
+      date: Date; 
+      records: FullPunchRecord[];
+      lunchDuration?: number;
+      lunchAlert?: boolean;
+      isRestDay?: boolean;
+    }[] = [];
+
+    days.forEach(day => {
+      const recordsOnDay = allEmployeeRecords.filter(r => isSameDay(new Date(r.timestamp), day));
       
-    const groups: { date: Date; records: FullPunchRecord[] }[] = [];
-    raw.forEach(record => {
-      const existing = groups.find(g => isSameDay(g.date, record.timestamp));
-      if (existing) {
-        existing.records.push(record);
-      } else {
-        groups.push({ date: record.timestamp, records: [record] });
+      if (recordsOnDay.length > 0) {
+        const group: any = { date: day, records: [...recordsOnDay] };
+        
+        // Lunch calculation
+        const firstOut = recordsOnDay.find(r => r.type === 'out');
+        if (firstOut) {
+          const nextIn = recordsOnDay.find(r => r.type === 'in' && new Date(r.timestamp).getTime() > new Date(firstOut.timestamp).getTime());
+          if (nextIn) {
+            const duration = (new Date(nextIn.timestamp).getTime() - new Date(firstOut.timestamp).getTime()) / (1000 * 60);
+            group.lunchDuration = Math.round(duration);
+            if (group.lunchDuration < minLunch) group.lunchAlert = true;
+          }
+        }
+        
+        // Sort records on day (latest first)
+        group.records.sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+        groups.push(group);
+      } else if (employee.is_12x36) {
+        // Logic for 12x36 Rest: Check if they worked "yesterday"
+        const yesterday = subDays(day, 1);
+        const workedYesterday = allEmployeeRecords.some(r => isSameDay(new Date(r.timestamp), yesterday));
+        
+        if (workedYesterday) {
+          groups.push({ date: day, records: [], isRestDay: true });
+        }
       }
     });
-    return groups;
-  }, [allPunchRecords, selectedEmployeeForDetail]);
+
+    return groups.sort((a, b) => b.date.getTime() - a.date.getTime());
+  }, [allPunchRecords, selectedEmployeeForDetail, filterStartDate, filterEndDate, employees]);
 
   const filteredEmployees = useMemo(() => {
     if (!selectedCompanyId) return employees;
-    return employees.filter(e => e.companyId === selectedCompanyId);
+    return employees.filter(e => (e.companyId || e.company_id) === selectedCompanyId);
   }, [employees, selectedCompanyId]);
 
   if (!user) {
@@ -421,8 +813,45 @@ export default function App() {
     <div className="min-h-screen bg-[#f1f3f5] flex flex-col items-center">
       <div className="w-full max-w-lg min-h-screen flex flex-col p-6 md:p-8 space-y-8">
         
+        {/* Header de Impressão (Só aparece no PDF/Print) */}
+        <div className="print-only mb-10 border-b-2 border-gray-900 pb-6">
+          <div className="flex justify-between items-start">
+            <div>
+              <h1 className="text-2xl font-black uppercase tracking-tighter text-gray-900">Espelho de Ponto Eletrônico</h1>
+              <p className="text-xs font-bold text-gray-500 mt-1 uppercase tracking-widest">Relatório Gerado via AxisPoint</p>
+            </div>
+            <div className="text-right">
+              <p className="text-[10px] font-black uppercase text-gray-400">Emissão</p>
+              <p className="text-xs font-bold">{formatBrasilia(new Date(), 'dd/MM/yyyy HH:mm')}</p>
+            </div>
+          </div>
+          
+          <div className="grid grid-cols-2 gap-8 mt-8">
+            <div className="space-y-1">
+              <p className="text-[10px] font-black uppercase text-gray-400">Empresa / Unidade</p>
+              <p className="text-sm font-bold text-gray-900">
+                {companies.find(c => c.id === selectedCompanyId)?.name || '---'}
+              </p>
+            </div>
+            {selectedEmployeeForDetail && (
+              <div className="space-y-1">
+                <p className="text-[10px] font-black uppercase text-gray-400">Colaborador</p>
+                <p className="text-sm font-bold text-gray-900">
+                  {employees.find(e => e.id === selectedEmployeeForDetail)?.name || '---'}
+                </p>
+              </div>
+            )}
+            <div className="space-y-1">
+              <p className="text-[10px] font-black uppercase text-gray-400">Período Selecionado</p>
+              <p className="text-sm font-bold text-gray-900">
+                {formatBrasilia(new Date(filterStartDate + 'T00:00:00'), 'dd/MM/yyyy')} até {formatBrasilia(new Date(filterEndDate + 'T00:00:00'), 'dd/MM/yyyy')}
+              </p>
+            </div>
+          </div>
+        </div>
+
         {/* Header */}
-        <header className="flex items-center justify-between">
+        <header className="flex items-center justify-between no-print">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl overflow-hidden shadow-sm">
               <img src="/logo.svg" alt="AxisPoint" className="w-full h-full" />
@@ -441,10 +870,24 @@ export default function App() {
           </div>
           
           <div className="flex items-center gap-3">
+            {activeTab === 'clock' && (
+              <button 
+                onClick={() => {
+                  setEditingId(null);
+                  setManualTime(formatBrasilia(getBrasiliaNow(), 'HH:mm'));
+                  setManualType(isClockedIn ? 'out' : 'in');
+                  setShowManualForm(true);
+                }}
+                className="p-2 text-amber-500 hover:bg-amber-50 rounded-lg transition-all"
+                title="Adicionar Ponto Manual"
+              >
+                <PlusCircle size={18} />
+              </button>
+            )}
             <div className={`
-               px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-[0.2em] border transition-colors bg-green-50 text-green-600 border-green-100
+               px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-[0.2em] border transition-colors ${isLoading ? 'bg-amber-50 text-amber-600 border-amber-100' : 'bg-green-50 text-green-600 border-green-100'}
             `}>
-               ONLINE
+               {isLoading ? 'SINCRONIZANDO...' : 'ONLINE'}
             </div>
             <button 
               onClick={handleLogout}
@@ -480,8 +923,22 @@ export default function App() {
               </button>
             </>
           )}
-          {isAdmin && selectedCompanyId && (
+          {userRole === 'company' && (
             <>
+              <button 
+                onClick={() => setActiveTab('team')}
+                className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-bold uppercase tracking-widest transition-all min-w-fit
+                  ${activeTab === 'team' ? 'bg-white text-[#1B9E9E] shadow-sm' : 'text-gray-500 hover:text-gray-700'}
+                `}
+              >
+                <Users size={16} />
+                Gestão
+                {filteredEmployees.length > 0 && (
+                  <span className="min-w-[20px] h-[20px] flex items-center justify-center bg-red-500 text-white text-[9px] font-black rounded-full px-1.5 shadow-sm ml-1">
+                    {filteredEmployees.length}
+                  </span>
+                )}
+              </button>
               <button 
                 onClick={() => setActiveTab('monitor')}
                 className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-bold uppercase tracking-widest transition-all min-w-fit
@@ -491,26 +948,25 @@ export default function App() {
                 <Monitor size={16} />
                 Registro
               </button>
-              <button 
-                onClick={() => setActiveTab('team')}
-                className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-bold uppercase tracking-widest transition-all min-w-fit
-                  ${activeTab === 'team' ? 'bg-white text-[#1B9E9E] shadow-sm' : 'text-gray-500 hover:text-gray-700'}
-                `}
-              >
-                <Users size={16} />
-                Gestão de Equipe
-              </button>
             </>
           )}
           {userRole === 'admin' && (
             <button 
-              onClick={() => setActiveTab('admin')}
+              onClick={() => {
+                setSelectedCompanyId(null);
+                setActiveTab('admin');
+              }}
               className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-bold uppercase tracking-widest transition-all min-w-fit
-                ${activeTab === 'admin' ? 'bg-white text-[#1B9E9E] shadow-sm' : 'text-gray-500 hover:text-gray-700'}
+                ${['admin', 'monitor', 'team', 'company-edit'].includes(activeTab) ? 'bg-white text-[#1B9E9E] shadow-sm' : 'text-gray-500 hover:text-gray-700'}
               `}
             >
               <Briefcase size={16} />
               Empresas
+              {companies.length > 0 && (
+                <span className="min-w-[20px] h-[20px] flex items-center justify-center bg-red-500 text-white text-[9px] font-black rounded-full px-1.5 shadow-sm ml-1">
+                  {companies.length}
+                </span>
+              )}
             </button>
           )}
         </nav>
@@ -532,25 +988,11 @@ export default function App() {
                   recordedDays={recordedDays}
                 />
 
-                <div className="flex justify-center">
-                  <button 
-                    onClick={() => {
-                      setEditingId(null);
-                      setManualTime(formatBrasilia(getBrasiliaNow(), 'HH:mm'));
-                      setManualType(isClockedIn ? 'out' : 'in');
-                      setShowManualForm(true);
-                    }}
-                    className="flex items-center gap-2 px-6 py-3 bg-white border-2 border-teal-100 text-[#1B9E9E] rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] hover:bg-teal-50 transition-all shadow-sm active:scale-95"
-                  >
-                    <PlusCircle size={16} />
-                    Novo Ponto Manual
-                  </button>
-                </div>
-
                 <div className="flex justify-center pb-12">
                   <PunchClock 
                     onPunch={handlePunch} 
                     isClockedIn={isClockedIn} 
+                    nextPunchLabel={getPunchLabel(punchesTodayCount)}
                   />
                 </div>
               </motion.div>
@@ -590,28 +1032,26 @@ export default function App() {
                            </div>
                         </div>
                         
-                        {dayRecords.map((record) => (
+                        {dayRecords.slice().sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime()).map((record, index) => (
                           <motion.div
                             key={record.id}
                             layout
                             className="flex items-center justify-between bg-white p-4 rounded-2xl shadow-sm border border-gray-100 group"
                           >
                             <div className="flex items-center gap-4">
-                              <div className={`p-3 rounded-xl ${record.type === 'in' ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'}`}>
+                              <div className={`p-2.5 rounded-xl ${record.type === 'in' ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'}`}>
                                 {record.type === 'in' ? <LogIn size={18} /> : <LogOut size={18} />}
                               </div>
                               <div>
+                                <p className="text-sm font-bold text-gray-900 group-hover:text-[#1B9E9E] transition-colors">
+                                  {getPunchLabel(index)}
+                                </p>
                                 <div className="flex items-center gap-2">
-                                  <p className="text-sm font-bold text-gray-900">
-                                    {record.type === 'in' ? 'Entrada' : 'Saída'}
-                                  </p>
+                                  <p className="text-xs text-gray-400 font-mono">{formatBrasilia(record.timestamp, 'HH:mm:ss')}</p>
                                   {record.isManual && (
-                                    <span className="text-[8px] bg-gray-100 text-gray-400 px-1.5 py-0.5 rounded uppercase font-black">Manual</span>
+                                    <span className="text-[8px] font-black uppercase text-amber-500 bg-amber-50 px-1 py-0.5 rounded leading-none border border-amber-100">Manual</span>
                                   )}
                                 </div>
-                                <p className="text-xs text-gray-400 font-medium">
-                                  Registrado às {formatBrasilia(record.timestamp, 'HH:mm:ss')}
-                                </p>
                               </div>
                             </div>
                             
@@ -636,15 +1076,144 @@ export default function App() {
                   )}
                 </div>
               </motion.div>
-            ) : activeTab === 'monitor' ? (
+            ) : (['monitor', 'team', 'company-edit'].includes(activeTab)) ? (
               <motion.div
-                key="monitor-tab"
+                key="company-detail"
                 initial={{ opacity: 0, scale: 0.98 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.98 }}
                 className="space-y-6"
               >
-                {!selectedCompanyId ? (
+                {/* Sub-Header para Admins (Navegação da Empresa) */}
+                {userRole === 'admin' && selectedCompanyId && (
+                  <div className="flex items-center justify-between bg-white p-2 rounded-2xl shadow-sm border border-gray-100">
+                    <button 
+                      onClick={() => {
+                        setSelectedCompanyId(null);
+                        setActiveTab('admin');
+                      }}
+                      className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-gray-500 hover:text-[#1B9E9E] px-4 py-2"
+                    >
+                      <ArrowLeft size={16} />
+                      Voltar ao Painel
+                    </button>
+
+                    <div className="flex gap-2 p-1 bg-gray-100 rounded-xl overflow-x-auto no-scrollbar">
+                      <button 
+                        onClick={() => setActiveTab('company-edit')}
+                        className={`flex items-center gap-2 px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeTab === 'company-edit' ? 'bg-white text-[#1B9E9E] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                      >
+                        <Briefcase size={14} />
+                        Cadastro
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Aba CADASTRO (Edição da empresa) */}
+                {activeTab === 'company-edit' && (
+                  <div className="bg-white p-8 rounded-[2rem] shadow-xl shadow-gray-200/50 border border-gray-100 mb-6">
+                    <form onSubmit={handleUpdateCompany} className="space-y-5">
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 ml-1">Nome da Empresa</label>
+                        <input 
+                          type="text"
+                          required
+                          value={editCompanyName}
+                          onChange={(e) => setEditCompanyName(e.target.value)}
+                          placeholder="Ex: Flow Tech LTDA"
+                          className="w-full bg-gray-50 border-2 border-gray-100 rounded-2xl p-4 text-sm font-medium focus:outline-none focus:border-[#1B9E9E] transition-colors"
+                        />
+                      </div>
+                      
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 ml-1">E-mail do Gestor</label>
+                        <input 
+                          type="email"
+                          required
+                          value={editCompanyEmail}
+                          onChange={(e) => setEditCompanyEmail(e.target.value)}
+                          placeholder="gestor@empresa.com"
+                          className="w-full bg-gray-50 border-2 border-gray-100 rounded-2xl p-4 text-sm font-medium focus:outline-none focus:border-[#1B9E9E] transition-colors"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 ml-1">Senha de Acesso</label>
+                        <div className="relative">
+                          <input 
+                            type={showCompanyEditPassword ? "text" : "password"}
+                            required
+                            value={editCompanyPassword}
+                            onChange={(e) => setEditCompanyPassword(e.target.value)}
+                            placeholder="Digite a senha"
+                            className="w-full bg-gray-50 border-2 border-gray-100 rounded-2xl p-4 pr-12 text-sm font-medium focus:outline-none focus:border-[#1B9E9E] transition-colors"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowCompanyEditPassword(!showCompanyEditPassword)}
+                            className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-[#1B9E9E] transition-colors"
+                          >
+                            {showCompanyEditPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                          </button>
+                        </div>
+                      </div>
+
+                      <button 
+                        type="submit"
+                        className="w-full py-4 bg-[#1B9E9E] text-white rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-[#1a3551] transition-all shadow-lg mt-4"
+                      >
+                        Atualizar Cadastro
+                      </button>
+                    </form>
+                  </div>
+                )}
+
+                {/* Aba MONITOR (Registros da empresa) */}
+                {activeTab === 'monitor' && (
+                  <div className="space-y-6">
+                    {selectedCompanyId && (
+                      <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-gray-100 space-y-4 no-print">
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-1.5">
+                            <label className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 ml-1">Início do Período</label>
+                            <input 
+                              type="date"
+                              value={filterStartDate}
+                              onChange={(e) => setFilterStartDate(e.target.value)}
+                              className="w-full bg-gray-50 border-2 border-gray-100 rounded-2xl p-3 text-xs font-bold focus:outline-none focus:border-[#1B9E9E] transition-colors"
+                            />
+                          </div>
+                          <div className="space-y-1.5">
+                            <label className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 ml-1">Fim do Período</label>
+                            <input 
+                              type="date"
+                              value={filterEndDate}
+                              onChange={(e) => setFilterEndDate(e.target.value)}
+                              className="w-full bg-gray-50 border-2 border-gray-100 rounded-2xl p-3 text-xs font-bold focus:outline-none focus:border-[#1B9E9E] transition-colors"
+                            />
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          <button 
+                            onClick={handleExportPDF}
+                            className="flex-1 flex items-center justify-center gap-2 py-3 bg-gray-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-black transition-all shadow-md"
+                          >
+                            <FileText size={14} />
+                            Imprimir Espelho
+                          </button>
+                          <button 
+                            onClick={handleExportExcel}
+                            className="flex-1 flex items-center justify-center gap-2 py-3 bg-white border-2 border-gray-100 text-gray-700 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-gray-50 transition-all shadow-sm"
+                          >
+                            <Download size={14} />
+                            Baixar CSV
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {!selectedCompanyId ? (
                    <div className="flex flex-col items-center justify-center py-20 text-center space-y-4">
                      <div className="p-4 bg-gray-100 rounded-full text-gray-400">
                        <Briefcase size={32} />
@@ -672,6 +1241,27 @@ export default function App() {
                         </h3>
                       </div>
 
+                      {/* Regras de Jornada Planas (Monitor Detail) */}
+                      {employees.find(e => e.id === selectedEmployeeForDetail) && (
+                        <div className="bg-teal-50/50 border border-teal-100/50 rounded-[2rem] p-5 flex items-center justify-between no-print">
+                          <div className="flex items-center gap-3">
+                            <div className="p-2 bg-white rounded-xl text-[#1B9E9E] shadow-sm">
+                              <Clock size={16} />
+                            </div>
+                            <div>
+                               <p className="text-[10px] font-black uppercase tracking-widest text-[#1B9E9E]/60">Jornada Definida</p>
+                               <p className="text-xs font-bold text-gray-900">
+                                 {employees.find(e => e.id === selectedEmployeeForDetail)?.work_start} — {employees.find(e => e.id === selectedEmployeeForDetail)?.work_end}
+                               </p>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                             <p className="text-[10px] font-black uppercase tracking-widest text-[#1B9E9E]/60">Intervalo Mín.</p>
+                             <p className="text-xs font-bold text-gray-900">{employees.find(e => e.id === selectedEmployeeForDetail)?.lunch_duration} min</p>
+                          </div>
+                        </div>
+                      )}
+
                       <div className="space-y-8">
                         {employeeDetailedRecords.length === 0 ? (
                           <div className="bg-white/50 border border-dashed border-gray-300 rounded-2xl p-12 text-center">
@@ -688,22 +1278,46 @@ export default function App() {
                                     : 'Data Inválida'}
                                 </span>
                                 <div className="h-px flex-1 bg-gray-200" />
+                                {group.lunchDuration !== undefined && (
+                                  <div className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border transition-all ${group.lunchAlert ? 'bg-red-50 text-red-600 border-red-100 animate-pulse' : 'bg-gray-50 text-gray-500 border-gray-100'}`}>
+                                    {group.lunchAlert && <AlertTriangle size={10} className="text-amber-500" />}
+                                    Almoço: {group.lunchDuration} min
+                                  </div>
+                                )}
                               </div>
 
                               <div className="space-y-3">
-                                {group.records.map(record => (
-                                  <div key={record.id} className="bg-white p-5 rounded-[2rem] shadow-sm border border-gray-100 flex items-center justify-between">
+                                {group.isRestDay && (
+                                  <div className="bg-blue-50/50 p-6 rounded-[2rem] border border-blue-100 flex items-center gap-4">
+                                    <div className="p-3 bg-blue-100 text-blue-600 rounded-2xl">
+                                      <Clock size={20} />
+                                    </div>
+                                    <div>
+                                      <p className="text-sm font-black text-blue-600 uppercase tracking-widest">Descanso 36h</p>
+                                      <p className="text-[10px] font-bold text-blue-400 uppercase mt-0.5">Folga Compensatória (12x36)</p>
+                                    </div>
+                                  </div>
+                                )}
+                                {group.records.slice().reverse().map((record, index) => (
+                                  <div key={record.id} className="bg-white p-5 rounded-[2rem] shadow-sm border border-gray-100 flex items-center justify-between group hover:border-[#1B9E9E] transition-all">
                                     <div className="flex items-center gap-4">
                                       <div className={`p-2.5 rounded-xl ${record.type === 'in' ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'}`}>
                                         {record.type === 'in' ? <LogIn size={16} /> : <LogOut size={16} />}
                                       </div>
                                       <div>
-                                        <p className="text-sm font-bold text-gray-900 capitalize">{record.type === 'in' ? 'Entrada' : 'Saída'}</p>
-                                        <p className="text-[10px] text-gray-400 uppercase font-black tracking-widest">Registrado via App</p>
+                                        <p className="text-sm font-bold text-gray-900 capitalize">{getPunchLabel(index)}</p>
+                                        <div className="flex items-center gap-2">
+                                          <p className="text-[10px] text-gray-400 uppercase font-black tracking-widest">{record.is_manual ? 'Registro Manual' : 'Ponto via App'}</p>
+                                          {record.is_overtime && (
+                                            <span className="bg-amber-100 text-amber-700 text-[8px] font-black px-2 py-0.5 rounded uppercase tracking-tighter animate-pulse">
+                                              Hora Extra
+                                            </span>
+                                          )}
+                                        </div>
                                       </div>
                                     </div>
-                                    <div className="bg-gray-50 px-4 py-2 rounded-2xl">
-                                      <p className="text-sm font-mono font-black text-gray-900 leading-none">
+                                    <div className="bg-gray-50 px-4 py-2 rounded-2xl group-hover:bg-teal-50 transition-colors">
+                                      <p className="text-sm font-mono font-black text-gray-900 group-hover:text-[#1B9E9E] leading-none">
                                         {formatBrasilia(record.timestamp, 'HH:mm:ss')}
                                       </p>
                                     </div>
@@ -772,6 +1386,11 @@ export default function App() {
                                           </span>
                                           <span className="text-[9px] text-gray-400 font-medium">Última atividade: {formatBrasilia(lastRecord.timestamp, 'dd/MM/yyyy')}</span>
                                         </>
+                                      ) : employee.is_12x36 && (() => {
+                                        const yesterday = subDays(getBrasiliaNow(), 1);
+                                        return allPunchRecords.some(r => (r.employeeId === employee.id || r.employee_id === employee.id) && isSameDay(new Date(r.timestamp), yesterday));
+                                      })() ? (
+                                        <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded bg-blue-100 text-blue-700">Descanso (12x36)</span>
                                       ) : (
                                         <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded bg-gray-100 text-gray-400">Sem registros</span>
                                       )}
@@ -794,30 +1413,12 @@ export default function App() {
                     </div>
                   </div>
                 )}
-              </motion.div>
-            ) : activeTab === 'team' ? (
-              <motion.div
-                key="team-tab"
-                initial={{ opacity: 0, scale: 0.98 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.98 }}
-                className="space-y-8"
-              >
-                {!selectedCompanyId ? (
-                   <div className="flex flex-col items-center justify-center py-20 text-center space-y-4">
-                     <div className="p-4 bg-gray-100 rounded-full text-gray-400">
-                       <Briefcase size={32} />
-                     </div>
-                     <p className="text-sm font-bold text-gray-500 uppercase tracking-widest">Selecione uma empresa primeiro</p>
-                     <button 
-                        onClick={() => setActiveTab('admin')}
-                        className="px-6 py-2 bg-[#1B9E9E] text-white rounded-xl text-[10px] font-black uppercase tracking-widest"
-                     >
-                        Ver Empresas
-                     </button>
-                   </div>
-                ) : (
-                  <>
+                  </div>
+                )}
+
+                {/* Aba TEAM (Gestão da Equipe) */}
+                {activeTab === 'team' && (
+                  <div className="space-y-6">
                     {editingEmployeeId ? (
                       <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
                         <div className="flex items-center justify-between px-2">
@@ -857,15 +1458,79 @@ export default function App() {
                               />
                             </div>
 
+                            <div className="grid grid-cols-2 gap-4">
+                              <div className="space-y-1.5">
+                                <label className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 ml-1">Entrada</label>
+                                <input 
+                                  type="time"
+                                  required
+                                  value={editEmployeeWorkStart}
+                                  onChange={(e) => setEditEmployeeWorkStart(e.target.value)}
+                                  className="w-full bg-gray-50 border-2 border-gray-100 rounded-2xl p-4 text-sm font-medium focus:outline-none focus:border-[#1B9E9E] transition-colors"
+                                />
+                              </div>
+                              <div className="space-y-1.5">
+                                <label className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 ml-1">Saída</label>
+                                <input 
+                                  type="time"
+                                  required
+                                  value={editEmployeeWorkEnd}
+                                  onChange={(e) => setEditEmployeeWorkEnd(e.target.value)}
+                                  className="w-full bg-gray-50 border-2 border-gray-100 rounded-2xl p-4 text-sm font-medium focus:outline-none focus:border-[#1B9E9E] transition-colors"
+                                />
+                              </div>
+                            </div>
                             <div className="space-y-1.5">
-                              <label className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 ml-1">Atualizar Senha (Opcional)</label>
+                              <label className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 ml-1">Intervalo de Almoço (minutos)</label>
                               <input 
-                                type="password"
-                                value={editEmployeePassword}
-                                onChange={(e) => setEditEmployeePassword(e.target.value)}
-                                placeholder="Deixe em branco para manter a atual"
+                                type="number"
+                                required
+                                min="0"
+                                value={editEmployeeLunchDuration}
+                                onChange={(e) => setEditEmployeeLunchDuration(e.target.value)}
+                                placeholder="Ex: 60"
                                 className="w-full bg-gray-50 border-2 border-gray-100 rounded-2xl p-4 text-sm font-medium focus:outline-none focus:border-[#1B9E9E] transition-colors"
                               />
+                            </div>
+                            
+                            <div className="flex items-center justify-between p-4 bg-blue-50/50 rounded-2xl border border-blue-100">
+                              <div className="flex items-center gap-3">
+                                <div className="p-2 bg-blue-100 text-blue-600 rounded-xl">
+                                  <Clock size={18} />
+                                </div>
+                                <div>
+                                  <p className="text-[10px] font-black uppercase tracking-widest text-blue-600">Regime Especial</p>
+                                  <p className="text-xs font-bold text-gray-700">Escala 12x36</p>
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setEditEmployeeIs12x36(!editEmployeeIs12x36)}
+                                className={`w-12 h-6 rounded-full transition-all relative ${editEmployeeIs12x36 ? 'bg-[#1B9E9E]' : 'bg-gray-200'}`}
+                              >
+                                <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${editEmployeeIs12x36 ? 'left-7' : 'left-1'}`} />
+                              </button>
+                            </div>
+
+                            <div className="space-y-1.5">
+                              <label className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 ml-1">Atualizar Senha (Opcional)</label>
+                              <div className="relative group">
+                                <input 
+                                  type={showEditPassword ? 'text' : 'password'}
+                                  value={editEmployeePassword}
+                                  onChange={(e) => setEditEmployeePassword(e.target.value)}
+                                  placeholder="Deixe em branco para manter a atual"
+                                  className="w-full bg-gray-50 border-2 border-gray-100 rounded-2xl p-4 pr-12 text-sm font-medium focus:outline-none focus:border-[#1B9E9E] transition-colors"
+                                />
+                                <button 
+                                  type="button"
+                                  onClick={() => setShowEditPassword(!showEditPassword)}
+                                  className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-[#1B9E9E] transition-colors"
+                                  title={showEditPassword ? "Ocultar senha" : "Mostrar senha"}
+                                >
+                                  {showEditPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                                </button>
+                              </div>
                             </div>
 
                             <div className="space-y-1.5 pt-2">
@@ -911,136 +1576,226 @@ export default function App() {
                     ) : (
                       <>
                         <div className="bg-white p-8 rounded-[2rem] shadow-xl shadow-gray-200/50 border border-gray-100">
-                      <div className="flex items-center gap-3 mb-6">
-                        <div className="p-3 bg-blue-50 text-blue-600 rounded-2xl">
-                          <Users size={24} />
-                        </div>
-                        <div>
-                           <h3 className="text-xl font-serif font-black tracking-tight text-gray-900 leading-none">Cadastrar Funcionário</h3>
-                           <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mt-1">
-                             Gestão de Equipe: {companies.find(c => c.id === selectedCompanyId)?.name}
-                           </p>
-                        </div>
-                      </div>
-
-                      <form onSubmit={handleCreateEmployee} className="space-y-5">
-                        <div className="space-y-1.5">
-                          <label className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 ml-1">Nome Completo</label>
-                          <input 
-                            type="text"
-                            required
-                            value={newEmployeeName}
-                            onChange={(e) => setNewEmployeeName(e.target.value)}
-                            placeholder="Nome do colaborador"
-                            className="w-full bg-gray-50 border-2 border-gray-100 rounded-2xl p-4 text-sm font-medium focus:outline-none focus:border-[#1B9E9E] transition-colors"
-                          />
-                        </div>
-                        
-                        <div className="space-y-1.5">
-                          <label className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 ml-1">E-mail de Acesso</label>
-                          <input 
-                            type="email"
-                            required
-                            value={newEmployeeEmail}
-                            onChange={(e) => setNewEmployeeEmail(e.target.value)}
-                            placeholder="colaborador@empresa.com"
-                            className="w-full bg-gray-50 border-2 border-gray-100 rounded-2xl p-4 text-sm font-medium focus:outline-none focus:border-[#1B9E9E] transition-colors"
-                          />
-                        </div>
-
-                        <div className="space-y-1.5">
-                          <label className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 ml-1">Senha Provisória</label>
-                          <input 
-                            type="password"
-                            required
-                            value={newEmployeePassword}
-                            onChange={(e) => setNewEmployeePassword(e.target.value)}
-                            placeholder="••••••••"
-                            className="w-full bg-gray-50 border-2 border-gray-100 rounded-2xl p-4 text-sm font-medium focus:outline-none focus:border-[#1B9E9E] transition-colors"
-                          />
-                        </div>
-
-                        <div className="space-y-1.5 pt-2">
-                          <label className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 ml-1">Foto de Perfil (Opcional)</label>
-                          <div className="flex items-center gap-4">
-                            <div 
-                              onClick={() => fileInputRef.current?.click()}
-                              className="w-16 h-16 rounded-2xl border-2 border-dashed border-gray-300 flex items-center justify-center text-gray-400 cursor-pointer hover:border-[#1B9E9E] hover:text-[#1B9E9E] transition-colors overflow-hidden relative group"
-                            >
-                              {newEmployeePhoto ? (
-                                <>
-                                  <img src={newEmployeePhoto} alt="Preview" className="w-full h-full object-cover" />
-                                  <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <Camera size={20} className="text-white" />
-                                  </div>
-                                </>
-                              ) : (
-                                <ImageIcon size={24} />
-                              )}
-                            </div>
-                            <div className="flex-1">
-                              <p className="text-xs font-medium text-gray-500">Clique ao lado para adicionar uma foto.</p>
-                              <p className="text-[10px] text-gray-400">JPG, PNG. Máx 2MB recomendado.</p>
-                            </div>
-                            <input 
-                              type="file" 
-                              ref={fileInputRef} 
-                              onChange={handlePhotoUpload} 
-                              accept="image/*" 
-                              className="hidden" 
-                            />
-                          </div>
-                        </div>
-
-                        <button 
-                          type="submit"
-                          className="w-full py-4 bg-gray-900 text-white rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-black transition-all shadow-lg mt-4"
-                        >
-                          Confirmar Cadastro
-                        </button>
-                      </form>
-                    </div>
-
-                    <div className="space-y-4">
-                      <div className="flex items-center gap-2 px-2">
-                        <Users size={16} className="text-gray-400" />
-                        <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-500">Equipe Ativa</h4>
-                      </div>
-                      
-                      {filteredEmployees.length === 0 ? (
-                        <div className="p-10 border border-dashed border-gray-300 rounded-[2rem] text-center text-gray-400 text-xs italic">
-                           Nenhum funcionário vinculado.
-                        </div>
-                      ) : (
-                        filteredEmployees.map(emp => (
-                          <div 
-                            key={emp.id} 
-                            onClick={() => startEditEmployee(emp)}
-                            className="bg-white p-6 rounded-[2rem] shadow-sm border border-gray-100 flex items-center justify-between group cursor-pointer hover:border-[#1B9E9E] hover:shadow-md transition-all"
+                          <button 
+                            type="button"
+                            onClick={() => setIsCreateFormExpanded(!isCreateFormExpanded)}
+                            className="w-full flex items-center justify-between text-left group"
                           >
-                            <div className="flex items-center gap-4">
-                              <div className="w-12 h-12 bg-gray-50 text-gray-400 flex items-center justify-center rounded-2xl group-hover:bg-teal-50 group-hover:text-[#1B9E9E] transition-colors overflow-hidden">
-                                {emp.photo ? (
-                                  <img src={emp.photo} alt={emp.name} className="w-full h-full object-cover" />
-                                ) : (
-                                  <Users size={20} />
-                                )}
+                            <div className="flex items-center gap-3">
+                              <div className="p-3 bg-blue-50 text-blue-600 rounded-2xl group-hover:bg-blue-100 transition-colors">
+                                <Users size={24} />
                               </div>
                               <div>
-                                <p className="text-sm font-bold text-gray-900 group-hover:text-[#1a3551] transition-colors">{emp.name}</p>
-                                <p className="text-xs text-gray-400 group-hover:text-[#1B9E9E]/70 transition-colors">{emp.email}</p>
+                                <h3 className="text-xl font-serif font-black tracking-tight text-gray-900 leading-none">Cadastrar Funcionário</h3>
+                                <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mt-1">
+                                  Gestão de Equipe: {companies.find(c => c.id === selectedCompanyId)?.name}
+                                </p>
                               </div>
                             </div>
-                            <div className="bg-gray-50 p-2.5 rounded-xl text-gray-400 group-hover:bg-teal-100 group-hover:text-[#1B9E9E] transition-colors">
-                               <Edit2 size={16} />
+                            <div className={`p-2 rounded-xl bg-gray-50 text-gray-400 group-hover:text-[#1B9E9E] group-hover:bg-teal-50 transition-all ${isCreateFormExpanded ? 'rotate-180' : ''}`}>
+                              <ChevronDown size={20} />
                             </div>
+                          </button>
+
+                          <AnimatePresence>
+                            {isCreateFormExpanded && (
+                              <motion.div
+                                initial={{ height: 0, opacity: 0, marginTop: 0 }}
+                                animate={{ height: 'auto', opacity: 1, marginTop: 24 }}
+                                exit={{ height: 0, opacity: 0, marginTop: 0 }}
+                                className="overflow-hidden"
+                              >
+                                <form onSubmit={handleCreateEmployee} className="space-y-5">
+                                  <div className="space-y-1.5">
+                                    <label className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 ml-1">Nome Completo</label>
+                                    <input 
+                                      type="text"
+                                      required
+                                      value={newEmployeeName}
+                                      onChange={(e) => setNewEmployeeName(e.target.value)}
+                                      placeholder="Nome do colaborador"
+                                      className="w-full bg-gray-50 border-2 border-gray-100 rounded-2xl p-4 text-sm font-medium focus:outline-none focus:border-[#1B9E9E] transition-colors"
+                                    />
+                                  </div>
+                                  
+                                  <div className="space-y-1.5">
+                                    <label className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 ml-1">E-mail de Acesso</label>
+                                    <input 
+                                      type="email"
+                                      required
+                                      value={newEmployeeEmail}
+                                      onChange={(e) => setNewEmployeeEmail(e.target.value)}
+                                      placeholder="colaborador@empresa.com"
+                                      className="w-full bg-gray-50 border-2 border-gray-100 rounded-2xl p-4 text-sm font-medium focus:outline-none focus:border-[#1B9E9E] transition-colors"
+                                    />
+                                  </div>
+
+                                  <div className="space-y-1.5">
+                                    <label className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 ml-1">Senha Provisória</label>
+                                    <div className="relative group">
+                                      <input 
+                                        type={showNewPassword ? 'text' : 'password'}
+                                        required
+                                        value={newEmployeePassword}
+                                        onChange={(e) => setNewEmployeePassword(e.target.value)}
+                                        placeholder="••••••••"
+                                        className="w-full bg-gray-50 border-2 border-gray-100 rounded-2xl p-4 pr-12 text-sm font-medium focus:outline-none focus:border-[#1B9E9E] transition-colors"
+                                      />
+                                      <button 
+                                        type="button"
+                                        onClick={() => setShowNewPassword(!showNewPassword)}
+                                        className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-[#1B9E9E] transition-colors"
+                                        title={showNewPassword ? "Ocultar senha" : "Mostrar senha"}
+                                      >
+                                        {showNewPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                                      </button>
+                                    </div>
+                                  </div>
+
+                                  <div className="space-y-1.5 pt-2">
+                                    <label className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 ml-1">Foto de Perfil (Opcional)</label>
+                                    <div className="flex items-center gap-4">
+                                      <div 
+                                        onClick={() => fileInputRef.current?.click()}
+                                        className="w-16 h-16 rounded-2xl border-2 border-dashed border-gray-300 flex items-center justify-center text-gray-400 cursor-pointer hover:border-[#1B9E9E] hover:text-[#1B9E9E] transition-colors overflow-hidden relative group"
+                                      >
+                                        {newEmployeePhoto ? (
+                                          <>
+                                            <img src={newEmployeePhoto} alt="Preview" className="w-full h-full object-cover" />
+                                            <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                              <Camera size={20} className="text-white" />
+                                            </div>
+                                          </>
+                                        ) : (
+                                          <ImageIcon size={24} />
+                                        )}
+                                      </div>
+                                      <div className="flex-1">
+                                        <p className="text-xs font-medium text-gray-500">Clique ao lado para adicionar uma foto.</p>
+                                        <p className="text-[10px] text-gray-400">JPG, PNG. Máx 2MB recomendado.</p>
+                                      </div>
+                                      <input 
+                                        type="file" 
+                                        ref={fileInputRef} 
+                                        onChange={handlePhotoUpload} 
+                                        accept="image/*" 
+                                        className="hidden" 
+                                      />
+                                    </div>
+                                  </div>
+
+                                  <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-1.5">
+                                      <label className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 ml-1">Entrada</label>
+                                      <input 
+                                        type="time"
+                                        required
+                                        value={newEmployeeWorkStart}
+                                        onChange={(e) => setNewEmployeeWorkStart(e.target.value)}
+                                        className="w-full bg-gray-50 border-2 border-gray-100 rounded-2xl p-4 text-sm font-medium focus:outline-none focus:border-[#1B9E9E] transition-colors"
+                                      />
+                                    </div>
+                                    <div className="space-y-1.5">
+                                      <label className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 ml-1">Saída</label>
+                                      <input 
+                                        type="time"
+                                        required
+                                        value={newEmployeeWorkEnd}
+                                        onChange={(e) => setNewEmployeeWorkEnd(e.target.value)}
+                                        className="w-full bg-gray-50 border-2 border-gray-100 rounded-2xl p-4 text-sm font-medium focus:outline-none focus:border-[#1B9E9E] transition-colors"
+                                      />
+                                    </div>
+                                    
+                                    <div className="col-span-2 flex items-center justify-between p-4 bg-blue-50/50 rounded-2xl border border-blue-100">
+                                      <div className="flex items-center gap-3">
+                                        <div className="p-2 bg-blue-100 text-blue-600 rounded-xl">
+                                          <Clock size={18} />
+                                        </div>
+                                        <div>
+                                          <p className="text-[10px] font-black uppercase tracking-widest text-blue-600">Regime Especial</p>
+                                          <p className="text-xs font-bold text-gray-700">Escala 12x36</p>
+                                        </div>
+                                      </div>
+                                      <button
+                                        type="button"
+                                        onClick={() => setNewEmployeeIs12x36(!newEmployeeIs12x36)}
+                                        className={`w-12 h-6 rounded-full transition-all relative ${newEmployeeIs12x36 ? 'bg-[#1B9E9E]' : 'bg-gray-200'}`}
+                                      >
+                                        <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${newEmployeeIs12x36 ? 'left-7' : 'left-1'}`} />
+                                      </button>
+                                    </div>
+                                  </div>
+
+                                  <div className="space-y-1.5">
+                                    <label className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 ml-1">Intervalo de Almoço (minutos)</label>
+                                    <input 
+                                      type="number"
+                                      required
+                                      min="0"
+                                      value={newEmployeeLunchDuration}
+                                      onChange={(e) => setNewEmployeeLunchDuration(e.target.value)}
+                                      placeholder="Ex: 60"
+                                      className="w-full bg-gray-50 border-2 border-gray-100 rounded-2xl p-4 text-sm font-medium focus:outline-none focus:border-[#1B9E9E] transition-colors"
+                                    />
+                                  </div>
+
+                                  <button 
+                                    type="submit"
+                                    className="w-full py-4 bg-gray-900 text-white rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-black transition-all shadow-lg mt-4"
+                                  >
+                                    Confirmar Cadastro
+                                  </button>
+                                </form>
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+                        </div>
+
+                        <div className="space-y-4">
+                          <div className="flex items-center gap-2 px-2">
+                            <Users size={16} className="text-gray-400" />
+                            <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-500">Equipe Ativa</h4>
                           </div>
-                        ))
-                      )}
-                    </div>
-                    </>
-                  )}
-                  </>
+                          
+                          {filteredEmployees.length === 0 ? (
+                            <div className="p-10 border border-dashed border-gray-300 rounded-[2rem] text-center text-gray-400 text-xs italic">
+                               Nenhum funcionário vinculado.
+                            </div>
+                          ) : (
+                            filteredEmployees.map(emp => (
+                              <div 
+                                key={emp.id} 
+                                onClick={() => startEditEmployee(emp)}
+                                className="bg-white p-6 rounded-[2rem] shadow-sm border border-gray-100 flex items-center justify-between group cursor-pointer hover:border-[#1B9E9E] hover:shadow-md transition-all"
+                              >
+                                <div className="flex items-center gap-4">
+                                  <div className="w-12 h-12 bg-gray-50 text-gray-400 flex items-center justify-center rounded-2xl group-hover:bg-teal-50 group-hover:text-[#1B9E9E] transition-colors overflow-hidden">
+                                    {emp.photo ? (
+                                      <img src={emp.photo} alt={emp.name} className="w-full h-full object-cover" />
+                                    ) : (
+                                      <Users size={20} />
+                                    )}
+                                  </div>
+                                  <div>
+                                    <div className="flex items-center gap-2">
+                                      <p className="text-sm font-bold text-gray-900 group-hover:text-[#1a3551] transition-colors uppercase tracking-tight">{emp.name}</p>
+                                      {emp.is_12x36 && (
+                                        <span className="text-[8px] font-black bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded border border-blue-100">12x36</span>
+                                      )}
+                                    </div>
+                                    <p className="text-xs text-gray-400 group-hover:text-[#1B9E9E]/70 transition-colors">{emp.email}</p>
+                                  </div>
+                                </div>
+                                <div className="bg-gray-50 p-2.5 rounded-xl text-gray-400 group-hover:bg-teal-100 group-hover:text-[#1B9E9E] transition-colors">
+                                   <Edit2 size={16} />
+                                </div>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </div>
                 )}
               </motion.div>
             ) : (
@@ -1124,25 +1879,50 @@ export default function App() {
                     </div>
                   ) : (
                     companies.map(company => (
-                      <button 
+                      <div 
                         key={company.id} 
-                        onClick={() => {
-                          setSelectedCompanyId(company.id);
-                          setActiveTab('monitor');
-                        }}
-                        className="w-full bg-white p-6 rounded-[2rem] shadow-sm border border-gray-100 flex items-center justify-between group active:scale-95 transition-all text-left"
+                        className="w-full bg-white p-6 rounded-[2rem] shadow-sm border border-gray-100 flex items-center justify-between group transition-all"
                       >
-                        <div className="flex items-center gap-4">
+                        <button
+                          onClick={() => {
+                            setSelectedCompanyId(company.id);
+                            setEditCompanyName(company.name);
+                            setEditCompanyEmail(company.admin_email);
+                            setEditCompanyPassword(company.password || '');
+                            setActiveTab('company-edit');
+                          }}
+                          className="flex-1 flex items-center gap-4 text-left active:scale-95"
+                        >
                           <div className="w-12 h-12 bg-gray-100 text-gray-400 flex items-center justify-center rounded-2xl group-hover:bg-teal-50 group-hover:text-[#1B9E9E] transition-colors">
                             <Briefcase size={20} />
                           </div>
                           <div>
-                            <p className="text-sm font-bold text-gray-900">{company.name}</p>
-                            <p className="text-xs text-gray-400">{company.adminEmail}</p>
+                            <p className="text-sm font-bold text-gray-900 group-hover:text-[#1B9E9E] transition-colors">{company.name}</p>
+                            <p className="text-xs text-gray-400">{company.admin_email}</p>
                           </div>
+                        </button>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => {
+                              setSelectedCompanyId(company.id);
+                              setEditCompanyName(company.name);
+                              setEditCompanyEmail(company.admin_email);
+                              setEditCompanyPassword(company.password || '');
+                              setActiveTab('company-edit');
+                            }}
+                            className="p-2 text-[8px] bg-green-50 text-green-600 hover:bg-green-100 rounded uppercase font-black transition-colors"
+                          >
+                            Gerenciar
+                          </button>
+                          <button
+                            onClick={() => handleDeleteCompany(company.id, company.name)}
+                            className="p-3 text-gray-300 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors"
+                            title="Excluir Empresa"
+                          >
+                            <Trash2 size={16} />
+                          </button>
                         </div>
-                        <div className="p-2 text-[8px] bg-green-50 text-green-600 rounded uppercase font-black">Gerenciar</div>
-                      </button>
+                      </div>
                     ))
                   )}
                 </div>

@@ -1,10 +1,10 @@
 import { useState, FormEvent } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Mail, Lock, Eye, EyeOff, ArrowRight, Briefcase, UserPlus, LogIn } from 'lucide-react';
+import { Mail, Lock, Eye, EyeOff, ArrowRight, Briefcase, UserPlus, LogIn, Fingerprint } from 'lucide-react';
 
 interface AuthViewProps {
   onLogin: (email: string) => void;
-  companies: { adminEmail: string; password?: string }[];
+  companies: { adminEmail?: string; admin_email?: string; password?: string }[];
   employees: { email: string; password?: string }[];
 }
 
@@ -14,6 +14,92 @@ export default function AuthView({ onLogin, companies, employees }: AuthViewProp
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hasBiometric, setHasBiometric] = useState<boolean>(() => !!localStorage.getItem('flow_bio_id'));
+  const [bioError, setBioError] = useState<string | null>(null);
+
+  const base64urlToUint8Array = (base64url: string) => {
+    const padding = '='.repeat((4 - base64url.length % 4) % 4);
+    const base64 = (base64url + padding).replace(/\-/g, '+').replace(/_/g, '/');
+    const rawData = atob(base64);
+    const outputArray = new Uint8Array(rawData.length);
+    for (let i = 0; i < rawData.length; ++i) {
+      outputArray[i] = rawData.charCodeAt(i);
+    }
+    return outputArray;
+  };
+  
+  const bufferToBase64url = (buffer: ArrayBuffer) => {
+    const byteRef = new Uint8Array(buffer);
+    let binary = '';
+    for (let i = 0; i < byteRef.byteLength; i++) {
+        binary += String.fromCharCode(byteRef[i]);
+    }
+    return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+  };
+
+  const handleEnableBiometrics = async (emailToSave: string) => {
+    if (window.PublicKeyCredential && !localStorage.getItem('flow_bio_id')) {
+      try {
+        const challenge = new Uint8Array(32);
+        window.crypto.getRandomValues(challenge);
+        const userId = new Uint8Array(16);
+        window.crypto.getRandomValues(userId);
+        
+        const cred = await navigator.credentials.create({
+          publicKey: {
+            challenge,
+            rp: { name: "AxisPoint" },
+            user: {
+              id: userId,
+              name: emailToSave,
+              displayName: emailToSave
+            },
+            pubKeyCredParams: [{ type: "public-key", alg: -7 }, { type: "public-key", alg: -257 }],
+            authenticatorSelection: { authenticatorAttachment: "platform", userVerification: "required" },
+            timeout: 60000
+          }
+        }) as PublicKeyCredential;
+        
+        if (cred && cred.rawId) {
+          localStorage.setItem('flow_bio_id', bufferToBase64url(cred.rawId));
+          localStorage.setItem('flow_bio_email', emailToSave);
+          setHasBiometric(true);
+        }
+      } catch(e) { 
+        console.warn('Biometric setup rejected/failed or not supported.', e);
+      }
+    }
+  };
+
+  const handleBiometricLogin = async () => {
+    setBioError(null);
+    try {
+      const storedId = localStorage.getItem('flow_bio_id');
+      const storedEmail = localStorage.getItem('flow_bio_email');
+      if (!storedId || !storedEmail) return;
+
+      const challenge = new Uint8Array(32);
+      window.crypto.getRandomValues(challenge);
+      
+      const assertion = await navigator.credentials.get({
+        publicKey: {
+          challenge,
+          allowCredentials: [{
+            type: 'public-key',
+            id: base64urlToUint8Array(storedId),
+            transports: ['internal']
+          }],
+          userVerification: "required"
+        }
+      });
+      
+      if (assertion) {
+         onLogin(storedEmail);
+      }
+    } catch(e) {
+      setBioError('A autenticação biométrica falhou ou foi cancelada.');
+    }
+  };
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
@@ -25,13 +111,13 @@ export default function AuthView({ onLogin, companies, employees }: AuthViewProp
       setIsLoading(false);
       
       const lowerEmail = email.toLowerCase();
-      const adminEmail = 'admin@flow.com';
+      const adminEmail = 'adminaxispoint@gmail.com';
       const adminPass = '#Senhasecreta2e';
 
       // 1. Check Super Admin
       if (lowerEmail === adminEmail) {
         if (password === adminPass) {
-          onLogin(email);
+          handleEnableBiometrics(email).finally(() => onLogin(email));
         } else {
           setError('Senha de administrador incorreta.');
         }
@@ -39,10 +125,10 @@ export default function AuthView({ onLogin, companies, employees }: AuthViewProp
       }
 
       // 2. Check Companies
-      const company = companies.find(c => c.adminEmail.toLowerCase() === lowerEmail);
+      const company = companies.find(c => (c.adminEmail || c.admin_email)?.toLowerCase() === lowerEmail);
       if (company) {
         if (company.password === password) {
-          onLogin(email);
+          handleEnableBiometrics(email).finally(() => onLogin(email));
         } else {
           setError('Senha da empresa incorreta.');
         }
@@ -53,7 +139,7 @@ export default function AuthView({ onLogin, companies, employees }: AuthViewProp
       const employee = employees.find(e => e.email.toLowerCase() === lowerEmail);
       if (employee) {
         if (employee.password === password) {
-          onLogin(email);
+          handleEnableBiometrics(email).finally(() => onLogin(email));
         } else {
           setError('Senha do funcionário incorreta.');
         }
@@ -100,6 +186,36 @@ export default function AuthView({ onLogin, companies, employees }: AuthViewProp
                 </motion.div>
               )}
             </AnimatePresence>
+
+            {hasBiometric && (
+              <div className="mb-6">
+                <button 
+                  type="button"
+                  onClick={handleBiometricLogin}
+                  className="w-full py-4 bg-teal-50 border-2 border-[#1B9E9E] text-[#1B9E9E] rounded-2xl text-sm font-black uppercase tracking-widest hover:bg-teal-100 transition-all flex items-center justify-center gap-3 group"
+                >
+                  <Fingerprint size={24} className="group-hover:scale-110 transition-transform" />
+                  Entrar com Biometria
+                </button>
+                <AnimatePresence>
+                  {bioError && (
+                    <motion.div 
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      exit={{ opacity: 0, height: 0 }}
+                      className="text-red-500 text-[10px] font-bold uppercase tracking-wider text-center mt-3"
+                    >
+                      {bioError}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+                <div className="flex items-center gap-4 my-6">
+                  <div className="h-px bg-gray-200 flex-1" />
+                  <span className="text-[10px] uppercase tracking-widest font-bold text-gray-400">ou use a senha</span>
+                  <div className="h-px bg-gray-200 flex-1" />
+                </div>
+              </div>
+            )}
 
             <div className="space-y-4">
               {/* Email */}
