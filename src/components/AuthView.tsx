@@ -161,7 +161,7 @@ export default function AuthView({ onLogin, companies, employees }: AuthViewProp
         <div className="p-6 sm:p-8 md:p-12 space-y-8 sm:space-y-10 flex-1 flex flex-col justify-center">
           {/* Brand Header */}
           <div className="flex flex-col items-center text-center space-y-4">
-            <img src="/logo.png" alt="AxisPoint" className="w-28 h-28 object-contain drop-shadow-xl" />
+            <img src="/logo.png" alt="AxisPoint" className="w-32 h-32 object-contain drop-shadow-xl" />
             <div>
               <h2 className="text-3xl font-display font-black uppercase tracking-tighter text-gray-900 leading-none">
                 AxisPoint
