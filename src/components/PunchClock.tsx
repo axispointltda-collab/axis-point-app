@@ -67,7 +67,7 @@ export default function PunchClock({ onPunch, isClockedIn, nextPunchLabel }: Pun
         `}>
           <AnimatePresence mode="wait">
             <motion.div
-              key={isClockedIn ? 'stop' : 'start'}
+              key={nextPunchLabel || (isClockedIn ? 'stop' : 'start')}
               initial={{ opacity: 0, scale: 0.8, rotate: -20 }}
               animate={{ opacity: 1, scale: 1, rotate: 0 }}
               exit={{ opacity: 0, scale: 0.8, rotate: 20 }}
@@ -81,9 +81,18 @@ export default function PunchClock({ onPunch, isClockedIn, nextPunchLabel }: Pun
             <span className={`text-[10px] font-black uppercase tracking-[0.3em] mb-1 opacity-60 ${isClockedIn ? 'text-red-400' : 'text-teal-100'}`}>
               Próximo Registro
             </span>
-            <span className="text-2xl font-display font-black uppercase tracking-[0.1em] text-center leading-tight">
-              {nextPunchLabel ? nextPunchLabel : (isClockedIn ? 'Saída' : 'Entrada')}
-            </span>
+            <AnimatePresence mode="wait">
+              <motion.span 
+                key={nextPunchLabel}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.2 }}
+                className="text-2xl font-display font-black uppercase tracking-[0.1em] text-center leading-tight"
+              >
+                {nextPunchLabel || (isClockedIn ? 'Saída' : 'Entrada')}
+              </motion.span>
+            </AnimatePresence>
             <span className={`text-[9px] font-bold uppercase tracking-[0.2em] mt-2 py-1 px-3 rounded-full border ${
               isClockedIn ? 'bg-red-100/20 border-red-200/30' : 'bg-white/10 border-white/20'
             }`}>
