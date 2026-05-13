@@ -95,6 +95,7 @@ export default function App() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [allPunchRecords, setAllPunchRecords] = useState<FullPunchRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isCompaniesListExpanded, setIsCompaniesListExpanded] = useState(false);
 
   // Initial Fetch from Supabase
   useEffect(() => {
@@ -1909,63 +1910,80 @@ export default function App() {
                 </div>
 
                 <div className="space-y-4">
-                  <div className="flex items-center gap-2 px-2">
-                    <ListTodo size={16} className="text-gray-400" />
-                    <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-500">Empresas Cadastradas</h4>
-                  </div>
-                  
-                  {companies.length === 0 ? (
-                    <div className="p-10 border border-dashed border-gray-300 rounded-[2rem] text-center text-gray-400 text-xs italic">
-                       Nenhuma empresa cadastrada.
+                  <button 
+                    onClick={() => setIsCompaniesListExpanded(!isCompaniesListExpanded)}
+                    className="flex items-center justify-between w-full px-2 py-2 group cursor-pointer"
+                  >
+                    <div className="flex items-center gap-2">
+                      <ListTodo size={16} className={`transition-colors ${isCompaniesListExpanded ? 'text-[#1B9E9E]' : 'text-gray-400'}`} />
+                      <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-500 group-hover:text-gray-700 transition-colors">Empresas Cadastradas</h4>
                     </div>
-                  ) : (
-                    companies.map(company => (
-                      <div 
-                        key={company.id} 
-                        className="w-full bg-white p-6 rounded-[2rem] shadow-sm border border-gray-100 flex items-center justify-between group transition-all"
+                    <ChevronDown size={14} className={`text-gray-400 transition-transform duration-300 ${isCompaniesListExpanded ? 'rotate-180' : ''}`} />
+                  </button>
+                  
+                  <AnimatePresence>
+                    {isCompaniesListExpanded && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        className="overflow-hidden space-y-4"
                       >
-                        <button
-                          onClick={() => {
-                            setSelectedCompanyId(company.id);
-                            setEditCompanyName(company.name);
-                            setEditCompanyEmail(company.admin_email);
-                            setEditCompanyPassword(company.password || '');
-                            setActiveTab('company-edit');
-                          }}
-                          className="flex-1 flex items-center gap-4 text-left active:scale-95"
-                        >
-                          <div className="w-12 h-12 bg-gray-100 text-gray-400 flex items-center justify-center rounded-2xl group-hover:bg-teal-50 group-hover:text-[#1B9E9E] transition-colors">
-                            <Briefcase size={20} />
+                        {companies.length === 0 ? (
+                          <div className="p-10 border border-dashed border-gray-300 rounded-[2rem] text-center text-gray-400 text-xs italic">
+                            Nenhuma empresa cadastrada.
                           </div>
-                          <div>
-                            <p className="text-sm font-bold text-gray-900 group-hover:text-[#1B9E9E] transition-colors">{company.name}</p>
-                            <p className="text-xs text-gray-400">{company.admin_email}</p>
-                          </div>
-                        </button>
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => {
-                              setSelectedCompanyId(company.id);
-                              setEditCompanyName(company.name);
-                              setEditCompanyEmail(company.admin_email);
-                              setEditCompanyPassword(company.password || '');
-                              setActiveTab('company-edit');
-                            }}
-                            className="p-2 text-[8px] bg-green-50 text-green-600 hover:bg-green-100 rounded uppercase font-black transition-colors"
-                          >
-                            Gerenciar
-                          </button>
-                          <button
-                            onClick={() => handleDeleteCompany(company.id, company.name)}
-                            className="p-3 text-gray-300 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors"
-                            title="Excluir Empresa"
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        </div>
-                      </div>
-                    ))
-                  )}
+                        ) : (
+                          companies.map(company => (
+                            <div 
+                              key={company.id} 
+                              className="w-full bg-white p-6 rounded-[2rem] shadow-sm border border-gray-100 flex items-center justify-between group transition-all"
+                            >
+                              <button
+                                onClick={() => {
+                                  setSelectedCompanyId(company.id);
+                                  setEditCompanyName(company.name);
+                                  setEditCompanyEmail(company.admin_email);
+                                  setEditCompanyPassword(company.password || '');
+                                  setActiveTab('company-edit');
+                                }}
+                                className="flex-1 flex items-center gap-4 text-left active:scale-95"
+                              >
+                                <div className="w-12 h-12 bg-gray-100 text-gray-400 flex items-center justify-center rounded-2xl group-hover:bg-teal-50 group-hover:text-[#1B9E9E] transition-colors">
+                                  <Briefcase size={20} />
+                                </div>
+                                <div>
+                                  <p className="text-sm font-bold text-gray-900 group-hover:text-[#1B9E9E] transition-colors">{company.name}</p>
+                                  <p className="text-xs text-gray-400">{company.admin_email}</p>
+                                </div>
+                              </button>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => {
+                                    setSelectedCompanyId(company.id);
+                                    setEditCompanyName(company.name);
+                                    setEditCompanyEmail(company.admin_email);
+                                    setEditCompanyPassword(company.password || '');
+                                    setActiveTab('company-edit');
+                                  }}
+                                  className="p-2 text-[8px] bg-green-50 text-green-600 hover:bg-green-100 rounded uppercase font-black transition-colors"
+                                >
+                                  Gerenciar
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteCompany(company.id, company.name)}
+                                  className="p-3 text-gray-300 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors"
+                                  title="Excluir Empresa"
+                                >
+                                  <Trash2 size={16} />
+                                </button>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </div>
               </motion.div>
             )}
