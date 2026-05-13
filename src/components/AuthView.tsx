@@ -188,13 +188,15 @@ export default function AuthView({ onLogin, companies, employees }: AuthViewProp
             </AnimatePresence>
 
             {hasBiometric && (
-              <div className="mb-6">
+              <div className="mb-6 flex flex-col items-center">
+                <div className="w-24 h-24 bg-teal-50 rounded-full flex items-center justify-center mb-6 border-4 border-teal-100 shadow-inner">
+                  <Fingerprint size={48} className="text-[#1B9E9E]" />
+                </div>
                 <button 
                   type="button"
                   onClick={handleBiometricLogin}
-                  className="w-full py-4 bg-teal-50 border-2 border-[#1B9E9E] text-[#1B9E9E] rounded-2xl text-sm font-black uppercase tracking-widest hover:bg-teal-100 transition-all flex items-center justify-center gap-3 group"
+                  className="w-full py-4 bg-[#1B9E9E] text-white rounded-2xl text-sm font-black uppercase tracking-widest hover:bg-[#167878] transition-all shadow-xl shadow-teal-200/50 flex items-center justify-center gap-3 group"
                 >
-                  <Fingerprint size={24} className="group-hover:scale-110 transition-transform" />
                   Entrar com Biometria
                 </button>
                 <AnimatePresence>
@@ -209,74 +211,84 @@ export default function AuthView({ onLogin, companies, employees }: AuthViewProp
                     </motion.div>
                   )}
                 </AnimatePresence>
-                <div className="flex items-center gap-4 my-6">
-                  <div className="h-px bg-gray-200 flex-1" />
-                  <span className="text-[10px] uppercase tracking-widest font-bold text-gray-400">ou use a senha</span>
-                  <div className="h-px bg-gray-200 flex-1" />
-                </div>
               </div>
             )}
 
-            <div className="space-y-4">
-              {/* Email */}
-              <div className="space-y-2">
-                <label className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 ml-1">E-mail</label>
-                <div className="relative group">
-                  <div className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-[#1B9E9E] transition-colors">
-                    <Mail size={18} />
+            {(!hasBiometric || showPassword) && (
+              <>
+                <div className="space-y-4">
+                  {/* Email */}
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 ml-1">E-mail</label>
+                    <div className="relative group">
+                      <div className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-[#1B9E9E] transition-colors">
+                        <Mail size={18} />
+                      </div>
+                      <input 
+                        type="email" 
+                        required
+                        placeholder="exemplo@email.com"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        className="w-full bg-gray-50 border-2 border-gray-100 rounded-2xl py-4 pl-12 pr-4 text-sm font-medium text-gray-900 focus:outline-none focus:border-[#1B9E9E] transition-colors placeholder:text-gray-300"
+                      />
+                    </div>
                   </div>
-                  <input 
-                    type="email" 
-                    required
-                    placeholder="exemplo@email.com"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="w-full bg-gray-50 border-2 border-gray-100 rounded-2xl py-4 pl-12 pr-4 text-sm font-medium text-gray-900 focus:outline-none focus:border-[#1B9E9E] transition-colors placeholder:text-gray-300"
-                  />
-                </div>
-              </div>
 
-              {/* Password */}
-              <div className="space-y-2">
-                <label className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 ml-1">Senha</label>
-                <div className="relative group">
-                  <div className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-[#1B9E9E] transition-colors">
-                    <Lock size={18} />
+                  {/* Password */}
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 ml-1">Senha</label>
+                    <div className="relative group">
+                      <div className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-[#1B9E9E] transition-colors">
+                        <Lock size={18} />
+                      </div>
+                      <input 
+                        type={showPassword ? 'text' : 'password'} 
+                        required
+                        placeholder="••••••••"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        className="w-full bg-gray-50 border-2 border-gray-100 rounded-2xl py-4 pl-12 pr-12 text-sm font-medium text-gray-900 focus:outline-none focus:border-[#1B9E9E] transition-colors placeholder:text-gray-300"
+                      />
+                      <button 
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+                      >
+                        {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                      </button>
+                    </div>
                   </div>
-                  <input 
-                    type={showPassword ? 'text' : 'password'} 
-                    required
-                    placeholder="••••••••"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="w-full bg-gray-50 border-2 border-gray-100 rounded-2xl py-4 pl-12 pr-12 text-sm font-medium text-gray-900 focus:outline-none focus:border-[#1B9E9E] transition-colors placeholder:text-gray-300"
-                  />
-                  <button 
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
-                  >
-                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                  </button>
                 </div>
-              </div>
-            </div>
 
-            {/* Action Button */}
-            <button 
-              type="submit"
-              disabled={isLoading}
-              className="w-full py-4 bg-[#1B9E9E] text-white rounded-2xl text-sm font-black uppercase tracking-widest hover:bg-[#167878] transition-all shadow-xl shadow-teal-200/50 flex items-center justify-center gap-3 disabled:opacity-70 disabled:cursor-not-allowed group"
-            >
-              {isLoading ? (
-                <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-              ) : (
-                <>
-                  Entrar no Sistema
-                  <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />
-                </>
-              )}
-            </button>
+                {/* Action Button */}
+                <button 
+                  type="submit"
+                  disabled={isLoading}
+                  className="w-full py-4 bg-[#1B9E9E] text-white rounded-2xl text-sm font-black uppercase tracking-widest hover:bg-[#167878] transition-all shadow-xl shadow-teal-200/50 flex items-center justify-center gap-3 disabled:opacity-70 disabled:cursor-not-allowed group"
+                >
+                  {isLoading ? (
+                    <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  ) : (
+                    <>
+                      Entrar com E-mail e Senha
+                      <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />
+                    </>
+                  )}
+                </button>
+              </>
+            )}
+
+            {hasBiometric && !showPassword && (
+              <button 
+                type="button"
+                onClick={() => setShowPassword(true)}
+                className="w-full py-2 text-[10px] font-black uppercase tracking-widest text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                Acessar usando E-mail e Senha
+              </button>
+            )}
+
           </form>
         </div>
 
