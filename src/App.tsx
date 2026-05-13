@@ -538,17 +538,17 @@ export default function App() {
     return records;
   }, [records]);
 
-  const isClockedIn = useMemo(() => {
-    if (myRecords.length === 0) return false;
-    // Ignora lançamentos futuros (como ponto manual) para não travar o status atual
-    const nowMs = getBrasiliaNow().getTime();
-    const pastRecords = myRecords.filter(r => r.timestamp.getTime() <= nowMs + 60000); // 1 min leniency
-    
-    if (pastRecords.length === 0) return false;
-    
-    const sorted = [...pastRecords].sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
-    return sorted[0].type === 'in';
+  // Filtra apenas registros de HOJE para o botão de ponto
+  const todayRecords = useMemo(() => {
+    const today = getBrasiliaNow();
+    return myRecords.filter(r => isSameDay(r.timestamp, today));
   }, [myRecords]);
+
+  const isClockedIn = useMemo(() => {
+    if (todayRecords.length === 0) return false;
+    const sorted = [...todayRecords].sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+    return sorted[0].type === 'in';
+  }, [todayRecords]);
 
   const recordedDays = useMemo(() => {
     const days = new Set<string>();
@@ -559,9 +559,8 @@ export default function App() {
   }, [myRecords]);
 
   const punchesTodayCount = useMemo(() => {
-    const today = getBrasiliaNow();
-    return myRecords.filter(r => isSameDay(r.timestamp, today)).length;
-  }, [myRecords]);
+    return todayRecords.length;
+  }, [todayRecords]);
 
   const groupedRecords = useMemo(() => {
     const sorted = [...myRecords].sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
@@ -895,7 +894,7 @@ export default function App() {
         <header className="flex items-center justify-between no-print">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl overflow-hidden shadow-sm">
-              <img src="/logo.svg" alt="AxisPoint" className="w-full h-full" />
+              <img src="/logo.png" alt="AxisPoint" className="w-full h-full" />
             </div>
             <div>
               <h1 className="text-lg font-display font-black uppercase tracking-tighter text-gray-900 leading-none">
@@ -1034,6 +1033,7 @@ export default function App() {
                     onPunch={handlePunch} 
                     isClockedIn={isClockedIn} 
                     nextPunchLabel={getPunchLabel(punchesTodayCount)}
+                    punchCount={punchesTodayCount}
                   />
                 </div>
               </motion.div>
