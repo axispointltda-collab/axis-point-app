@@ -852,7 +852,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#f1f3f5] flex flex-col items-center">
-      <div className="w-full max-w-lg min-h-screen flex flex-col p-6 md:p-8 space-y-8">
+      <div className="w-full max-w-5xl min-h-screen flex flex-col p-6 md:p-8 lg:p-12 space-y-8 transition-all">
         
         {/* Header de Impressão (Só aparece no PDF/Print) */}
         <div className="print-only mb-10 border-b-2 border-gray-900 pb-6">
