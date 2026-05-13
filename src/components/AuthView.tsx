@@ -152,13 +152,13 @@ export default function AuthView({ onLogin, companies, employees }: AuthViewProp
   };
 
   return (
-    <div className="h-full w-full overflow-y-auto bg-[#f1f3f5] flex items-center justify-center p-4 sm:p-6">
+    <div className="h-full w-full overflow-y-auto bg-[#f1f3f5] flex items-center justify-center p-0 sm:p-6">
       <motion.div 
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="w-full max-w-md bg-white rounded-[2.5rem] shadow-2xl shadow-gray-200/50 overflow-hidden border border-gray-100"
+        className="w-full min-h-full sm:min-h-0 max-w-md bg-white sm:rounded-[2.5rem] sm:shadow-2xl sm:shadow-gray-200/50 overflow-hidden sm:border border-gray-100 flex flex-col justify-center"
       >
-        <div className="p-8 md:p-12 space-y-10">
+        <div className="p-6 sm:p-8 md:p-12 space-y-8 sm:space-y-10 flex-1 flex flex-col justify-center">
           {/* Brand Header */}
           <div className="flex flex-col items-center text-center space-y-4">
             <img src="/logo.svg" alt="AxisPoint" className="w-20 h-20 drop-shadow-xl" />
