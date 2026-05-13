@@ -152,7 +152,7 @@ export default function AuthView({ onLogin, companies, employees }: AuthViewProp
   };
 
   return (
-    <div className="min-h-screen bg-[#f1f3f5] flex items-center justify-center p-6">
+    <div className="h-full w-full overflow-y-auto bg-[#f1f3f5] flex items-center justify-center p-4 sm:p-6">
       <motion.div 
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
