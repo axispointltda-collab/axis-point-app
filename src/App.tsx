@@ -96,6 +96,9 @@ export default function App() {
   const [allPunchRecords, setAllPunchRecords] = useState<FullPunchRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isCompaniesListExpanded, setIsCompaniesListExpanded] = useState(false);
+  // Swipe gesture states
+  const [touchStart, setTouchStart] = useState<{x: number, y: number} | null>(null);
+  const [touchEnd, setTouchEnd] = useState<{x: number, y: number} | null>(null);
 
   // Initial Fetch from Supabase
   useEffect(() => {
@@ -846,12 +849,67 @@ export default function App() {
     return employees.filter(e => (e.companyId || e.company_id) === selectedCompanyId);
   }, [employees, selectedCompanyId]);
 
+  const handleTouchStart = (e: React.TouchEvent) => {
+    setTouchEnd(null);
+    setTouchStart({ x: e.targetTouches[0].clientX, y: e.targetTouches[0].clientY });
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    setTouchEnd({ x: e.targetTouches[0].clientX, y: e.targetTouches[0].clientY });
+  };
+
+  const handleTouchEnd = () => {
+    if (!touchStart || !touchEnd) return;
+    
+    const distanceX = touchStart.x - touchEnd.x;
+    const distanceY = Math.abs(touchStart.y - touchEnd.y);
+    const minSwipeDistance = 50;
+    const maxVerticalOffset = 40;
+    
+    if (distanceY > maxVerticalOffset) return; // Prevent horizontal swipe while scrolling vertically
+
+    const isLeftSwipe = distanceX > minSwipeDistance;
+    const isRightSwipe = distanceX < -minSwipeDistance;
+
+    if (isLeftSwipe || isRightSwipe) {
+      const tabs = userRole === 'admin' 
+        ? ['clock', 'history', 'admin'] 
+        : userRole === 'company' 
+          ? ['team', 'monitor'] 
+          : ['clock', 'history'];
+
+      let currentIndex = tabs.indexOf(activeTab);
+      if (currentIndex === -1 && userRole === 'admin') {
+        if (['monitor', 'team', 'company-edit'].includes(activeTab)) {
+          currentIndex = tabs.indexOf('admin');
+        }
+      }
+
+      if (currentIndex !== -1) {
+        if (isLeftSwipe && currentIndex < tabs.length - 1) {
+          // Swipe Left = Go to Next Tab
+          const nextTab = tabs[currentIndex + 1];
+          setActiveTab(nextTab as any);
+        } else if (isRightSwipe && currentIndex > 0) {
+          // Swipe Right = Go to Prev Tab
+          const prevTab = tabs[currentIndex - 1];
+          setActiveTab(prevTab as any);
+        }
+      }
+    }
+  };
+
   if (!user) {
     return <AuthView onLogin={handleLogin} companies={companies} employees={employees} />;
   }
 
   return (
-    <div className="h-full w-full overflow-y-auto bg-[#f1f3f5] flex flex-col items-center scroll-smooth">
+    <div 
+      className="h-full w-full overflow-y-auto bg-[#f1f3f5] flex flex-col items-center scroll-smooth"
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+    >
       <div className="w-full max-w-5xl flex-1 flex flex-col p-2 sm:p-6 md:p-8 lg:p-12 space-y-4 sm:space-y-8 transition-all">
         
         {/* Header de Impressão (Só aparece no PDF/Print) */}
