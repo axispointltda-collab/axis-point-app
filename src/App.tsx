@@ -1081,7 +1081,7 @@ export default function App() {
                             className="flex items-center justify-between bg-white p-4 rounded-2xl shadow-sm border border-gray-100 group"
                           >
                             <div className="flex items-center gap-4">
-                              <div className={`p-2.5 rounded-xl ${record.type === 'in' ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'}`}>
+                              <div className={`p-2.5 rounded-xl text-white shadow-sm ${record.type === 'in' ? 'bg-green-500' : 'bg-red-500'}`}>
                                 {record.type === 'in' ? <LogIn size={18} /> : <LogOut size={18} />}
                               </div>
                               <div>
@@ -1343,7 +1343,7 @@ export default function App() {
                                 {group.records.slice().reverse().map((record, index) => (
                                   <div key={record.id} className="bg-white p-5 rounded-[2rem] shadow-sm border border-gray-100 flex items-center justify-between group hover:border-[#1B9E9E] transition-all">
                                     <div className="flex items-center gap-4">
-                                      <div className={`p-2.5 rounded-xl ${record.type === 'in' ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'}`}>
+                                      <div className={`p-2.5 rounded-xl text-white shadow-sm ${record.type === 'in' ? 'bg-green-500' : 'bg-red-500'}`}>
                                         {record.type === 'in' ? <LogIn size={16} /> : <LogOut size={16} />}
                                       </div>
                                       <div>
@@ -2020,11 +2020,11 @@ export default function App() {
 
                   <div className="space-y-6">
                     {/* Type Selector */}
-                    <div className="flex p-1 bg-gray-100 rounded-2xl">
+                    <div className="flex p-1 bg-gray-100 rounded-2xl gap-1">
                       <button 
                         onClick={() => setManualType('in')}
                         className={`flex-1 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all
-                          ${manualType === 'in' ? 'bg-white text-green-600 shadow-sm' : 'text-gray-400'}
+                          ${manualType === 'in' ? 'bg-green-500 text-white shadow-md' : 'bg-transparent text-gray-400 hover:bg-white'}
                         `}
                       >
                         Entrada
@@ -2032,7 +2032,7 @@ export default function App() {
                       <button 
                         onClick={() => setManualType('out')}
                         className={`flex-1 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all
-                          ${manualType === 'out' ? 'bg-white text-red-600 shadow-sm' : 'text-gray-400'}
+                          ${manualType === 'out' ? 'bg-red-500 text-white shadow-md' : 'bg-transparent text-gray-400 hover:bg-white'}
                         `}
                       >
                         Saída
