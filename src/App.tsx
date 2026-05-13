@@ -893,8 +893,8 @@ export default function App() {
         {/* Header */}
         <header className="flex items-center justify-between no-print">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl overflow-hidden shadow-sm">
-              <img src="/logo.png" alt="AxisPoint" className="w-full h-full" />
+            <div className="w-12 h-12 flex items-center justify-center">
+              <img src="/logo.png" alt="AxisPoint" className="w-full h-full object-contain" />
             </div>
             <div>
               <h1 className="text-lg font-display font-black uppercase tracking-tighter text-gray-900 leading-none">
