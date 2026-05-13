@@ -124,10 +124,20 @@ export default function App() {
           setAllPunchRecords(formattedRecords as any);
           
           // Filter for current user if applicable
-          if (userRole === 'employee' && user) {
+          if ((userRole === 'employee' || userRole === 'admin') && user) {
             const employee = dbEmployees?.find(e => e.email.toLowerCase() === user.toLowerCase());
             if (employee) {
               setRecords(formattedRecords.filter(r => r.employee_id === employee.id) as any);
+            } else if (userRole === 'admin') {
+              const adminId = '00000000-0000-0000-0000-000000000000';
+              if (!dbEmployees?.find(e => e.id === adminId)) {
+                supabase.from('companies').upsert({ id: adminId, name: 'Administração', admin_email: 'adminaxispoint@gmail.com' }).then(() => {
+                  supabase.from('employees').upsert({ id: adminId, company_id: adminId, name: 'Administrador Master', email: 'adminaxispoint@gmail.com', work_start: '08:00', work_end: '18:00', lunch_duration: 60, is_12x36: false }).then(() => {
+                    console.log('Ghost admin account created');
+                  });
+                });
+              }
+              setRecords(formattedRecords.filter(r => r.employee_id === adminId) as any);
             }
           }
         }
@@ -478,8 +488,10 @@ export default function App() {
       setNewCompanyName('');
       setNewCompanyEmail('');
       setNewCompanyPassword('');
+      alert('Empresa cadastrada com sucesso!');
     } else {
       console.error('Error creating company:', error);
+      alert('Erro ao cadastrar empresa. Detalhes: ' + (error?.message || 'Erro desconhecido de conexão.'));
     }
   };
 
@@ -513,8 +525,10 @@ export default function App() {
       setNewEmployeeWorkStart('08:00');
       setNewEmployeeWorkEnd('18:00');
       setNewEmployeeLunchDuration('60');
+      alert('Funcionário cadastrado com sucesso!');
     } else {
       console.error('Error creating employee:', error);
+      alert('Erro ao cadastrar funcionário. Detalhes: ' + (error?.message || 'Erro desconhecido.'));
     }
   };
 
@@ -565,8 +579,21 @@ export default function App() {
   const handlePunch = async () => {
     const now = getBrasiliaNow();
     const type = isClockedIn ? 'out' : 'in';
-    const currentEmployee = employees.find(e => e.email.toLowerCase() === user?.toLowerCase());
+    let currentEmployee = employees.find(e => e.email.toLowerCase() === user?.toLowerCase());
     
+    if (userRole === 'admin' && !currentEmployee) {
+      currentEmployee = {
+        id: '00000000-0000-0000-0000-000000000000',
+        company_id: '00000000-0000-0000-0000-000000000000',
+        name: 'Administrador Master',
+        email: user || '',
+        work_start: '08:00',
+        work_end: '18:00',
+        lunch_duration: 60,
+        is_12x36: false
+      } as any;
+    }
+
     if (!currentEmployee) {
       alert("Erro: Conta atual não é um perfil de funcionário válido para bater ponto.");
       return;
@@ -630,14 +657,28 @@ export default function App() {
       setSelectedDate(now);
     } else {
       console.error('Error punching clock:', error);
+      alert('Erro inesperado ao registrar o ponto: Verifique o console. ' + (error?.message || ''));
     }
   };
 
   const handleAddManual = async () => {
     const [hours, minutes] = manualTime.split(':').map(Number);
     let targetDate = setSeconds(setMinutes(setHours(selectedDate, hours), minutes), 0);
-    const currentEmployee = employees.find(e => e.email.toLowerCase() === user?.toLowerCase());
+    let currentEmployee = employees.find(e => e.email.toLowerCase() === user?.toLowerCase());
     
+    if (userRole === 'admin' && !currentEmployee) {
+      currentEmployee = {
+        id: '00000000-0000-0000-0000-000000000000',
+        company_id: '00000000-0000-0000-0000-000000000000',
+        name: 'Administrador Master',
+        email: user || '',
+        work_start: '08:00',
+        work_end: '18:00',
+        lunch_duration: 60,
+        is_12x36: false
+      } as any;
+    }
+
     if (!currentEmployee) {
       alert("Erro: Faça login como funcionário para registrar um ponto. Conta de administração principal não pode registrar horários.");
       return;
