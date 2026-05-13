@@ -109,7 +109,7 @@ export default function PunchClock({ onPunch, isClockedIn, nextPunchLabel, punch
           absolute inset-0 rounded-[2rem] blur-2xl opacity-40 transition-all duration-500 group-hover:opacity-70
           ${punchCount >= 4 
             ? 'bg-amber-500/50' 
-            : isClockedIn ? 'bg-red-500/50' : 'bg-[#1B9E9E]/80'
+            : isClockedIn ? 'bg-red-500/50' : 'bg-green-500/80'
           }
         `} />
         
@@ -119,8 +119,8 @@ export default function PunchClock({ onPunch, isClockedIn, nextPunchLabel, punch
           ${punchCount >= 4
             ? 'bg-gradient-to-br from-amber-400 via-amber-500 to-orange-600 border-amber-600 text-white shadow-amber-400/60'
             : isClockedIn 
-              ? 'bg-gradient-to-br from-white to-red-50 border-red-200 text-red-600' 
-              : 'bg-gradient-to-br from-[#1B9E9E] via-[#22C5C5] to-[#127272] border-[#158282] text-white shadow-[#1B9E9E]/60'
+              ? 'bg-gradient-to-br from-red-500 via-red-600 to-red-700 border-red-800 text-white shadow-red-500/60' 
+              : 'bg-gradient-to-br from-green-500 via-green-600 to-green-700 border-green-800 text-white shadow-green-500/60'
           }
         `}>
           <AnimatePresence mode="wait">
@@ -141,8 +141,8 @@ export default function PunchClock({ onPunch, isClockedIn, nextPunchLabel, punch
           </AnimatePresence>
 
           <div className="flex flex-col items-center">
-            <span className={`text-[10px] font-black uppercase tracking-[0.3em] mb-1 opacity-60 ${
-              punchCount >= 4 ? 'text-amber-100' : isClockedIn ? 'text-red-400' : 'text-teal-100'
+            <span className={`text-[10px] font-black uppercase tracking-[0.3em] mb-1 opacity-80 ${
+              punchCount >= 4 ? 'text-amber-100' : isClockedIn ? 'text-red-100' : 'text-green-100'
             }`}>
               Próximo Registro
             </span>
