@@ -863,52 +863,96 @@ export default function App() {
     const start = parseISO(filterStartDate);
     const end = parseISO(filterEndDate);
 
-    // Get all records for this employee (even outside range to check for patterns)
     const allEmployeeRecords = allPunchRecords
       .filter(r => (r.employee_id === selectedEmployeeForDetail || r.employeeId === selectedEmployeeForDetail))
       .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
-    const days = eachDayOfInterval({ start, end });
-    const groups: { 
-      date: Date; 
-      records: FullPunchRecord[];
-      lunchDuration?: number;
-      lunchAlert?: boolean;
-      isRestDay?: boolean;
-    }[] = [];
+    const journeys: any[] = [];
+    let currentJourney: FullPunchRecord[] = [];
 
-    days.forEach(day => {
-      const recordsOnDay = allEmployeeRecords.filter(r => isSameDay(new Date(r.timestamp), day));
-      
-      if (recordsOnDay.length > 0) {
-        const group: any = { date: day, records: [...recordsOnDay] };
+    for (let i = 0; i < allEmployeeRecords.length; i++) {
+      const record = allEmployeeRecords[i];
+      if (currentJourney.length === 0) {
+        currentJourney.push(record);
+      } else {
+        const lastRecord = currentJourney[currentJourney.length - 1];
+        const hoursDiff = (new Date(record.timestamp).getTime() - new Date(lastRecord.timestamp).getTime()) / (1000 * 60 * 60);
         
-        // Lunch calculation
-        const firstOut = recordsOnDay.find(r => r.type === 'out');
-        if (firstOut) {
-          const nextIn = recordsOnDay.find(r => r.type === 'in' && new Date(r.timestamp).getTime() > new Date(firstOut.timestamp).getTime());
-          if (nextIn) {
-            const duration = (new Date(nextIn.timestamp).getTime() - new Date(firstOut.timestamp).getTime()) / (1000 * 60);
-            group.lunchDuration = Math.round(duration);
-            if (group.lunchDuration < minLunch) group.lunchAlert = true;
-          }
-        }
-        
-        // Sort records on day (latest first)
-        group.records.sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-        groups.push(group);
-      } else if (employee.is_12x36) {
-        // Logic for 12x36 Rest: Check if they worked "yesterday"
-        const yesterday = subDays(day, 1);
-        const workedYesterday = allEmployeeRecords.some(r => isSameDay(new Date(r.timestamp), yesterday));
-        
-        if (workedYesterday) {
-          groups.push({ date: day, records: [], isRestDay: true });
+        if ((currentJourney.length >= 4 && record.type === 'in') || hoursDiff > 14) {
+          journeys.push({ date: new Date(currentJourney[0].timestamp), records: [...currentJourney] });
+          currentJourney = [record];
+        } else {
+          currentJourney.push(record);
         }
       }
+    }
+    if (currentJourney.length > 0) {
+      journeys.push({ date: new Date(currentJourney[0].timestamp), records: [...currentJourney] });
+    }
+
+    journeys.forEach(journey => {
+      const ascRecords = [...journey.records].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+      journey.records = ascRecords.reverse(); // For UI
+      
+      let lunchMins = 0;
+      for (let i = 0; i < ascRecords.length - 1; i++) {
+        if (ascRecords[i].type === 'out' && ascRecords[i+1].type === 'in') {
+          lunchMins += (new Date(ascRecords[i+1].timestamp).getTime() - new Date(ascRecords[i].timestamp).getTime()) / 60000;
+        }
+      }
+      if (lunchMins > 0) {
+        journey.lunchDuration = Math.round(lunchMins);
+        if (journey.lunchDuration < minLunch) journey.lunchAlert = true;
+      }
+      
+      let workedMins = 0;
+      let lastIn: Date | null = null;
+      ascRecords.forEach((r: any) => {
+        if (r.type === 'in') lastIn = new Date(r.timestamp);
+        else if (r.type === 'out' && lastIn) {
+          workedMins += (new Date(r.timestamp).getTime() - lastIn.getTime()) / 60000;
+          lastIn = null;
+        }
+      });
+      journey.workedMinutes = Math.round(workedMins);
+      
+      let expectedMins = 0;
+      if (employee.is_12x36) {
+        expectedMins = 12 * 60;
+      } else if (employee.work_start && employee.work_end) {
+        const [startH, startM] = employee.work_start.split(':').map(Number);
+        const [endH, endM] = employee.work_end.split(':').map(Number);
+        expectedMins = (endH * 60 + endM) - (startH * 60 + startM);
+        if (expectedMins < 0) expectedMins += 24 * 60;
+        expectedMins -= minLunch;
+      }
+      
+      journey.expectedMinutes = expectedMins;
+      journey.extraMinutes = journey.workedMinutes - expectedMins;
     });
 
-    return groups.sort((a, b) => b.date.getTime() - a.date.getTime());
+    const filteredJourneys = journeys.filter(j => {
+      const recordDateStr = formatBrasilia(j.date, 'yyyy-MM-dd');
+      return recordDateStr >= filterStartDate && recordDateStr <= filterEndDate;
+    });
+
+    // Add rest days for 12x36 if they worked yesterday but not today
+    if (employee.is_12x36) {
+      const days = eachDayOfInterval({ start, end });
+      days.forEach(day => {
+        const dayStr = formatBrasilia(day, 'yyyy-MM-dd');
+        const hasJourney = filteredJourneys.some(j => formatBrasilia(j.date, 'yyyy-MM-dd') === dayStr);
+        if (!hasJourney) {
+          const yesterday = subDays(day, 1);
+          const workedYesterday = journeys.some(j => formatBrasilia(j.date, 'yyyy-MM-dd') === formatBrasilia(yesterday, 'yyyy-MM-dd'));
+          if (workedYesterday) {
+            filteredJourneys.push({ date: day, records: [], isRestDay: true });
+          }
+        }
+      });
+    }
+
+    return filteredJourneys.sort((a, b) => b.date.getTime() - a.date.getTime());
   }, [allPunchRecords, selectedEmployeeForDetail, filterStartDate, filterEndDate, employees]);
 
   const filteredEmployees = useMemo(() => {
@@ -1451,9 +1495,25 @@ export default function App() {
                                     Almoço: {group.lunchDuration} min
                                   </div>
                                 )}
+                                </div>
                               </div>
 
                               <div className="space-y-3">
+                                {group.workedMinutes > 0 && (
+                                  <div className="flex flex-wrap gap-2 px-2 no-print">
+                                    <div className="bg-[#f1f3f5] px-3 py-2 rounded-xl text-gray-700 text-[10px] font-black uppercase tracking-widest flex items-center gap-2">
+                                      <Clock size={12} className="text-[#1B9E9E]" />
+                                      Trabalhado: {Math.floor(group.workedMinutes / 60)}h {String(group.workedMinutes % 60).padStart(2, '0')}m
+                                    </div>
+                                    {group.extraMinutes !== 0 && group.records.length % 2 === 0 && (
+                                      <div className={`px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 ${group.extraMinutes > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                                        <Zap size={12} className={group.extraMinutes > 0 ? 'text-green-600' : 'text-red-600'} />
+                                        Banco: {group.extraMinutes > 0 ? '+' : '-'}{Math.floor(Math.abs(group.extraMinutes) / 60)}h {String(Math.abs(group.extraMinutes) % 60).padStart(2, '0')}m
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+
                                 {group.isRestDay && (
                                   <div className="bg-blue-50/50 p-6 rounded-[2rem] border border-blue-100 flex items-center gap-4">
                                     <div className="p-3 bg-blue-100 text-blue-600 rounded-2xl">
