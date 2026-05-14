@@ -579,7 +579,7 @@ export default function App() {
     return Object.entries(groups).sort((a, b) => b[0].localeCompare(a[0]));
   }, [myRecords]);
 
-  const handlePunch = async () => {
+  const handlePunch = async (photoDataUrl: string | null = null, location: { lat: number, lng: number } | null = null) => {
     const now = getBrasiliaNow();
     const type = isClockedIn ? 'out' : 'in';
     let currentEmployee = employees.find(e => e.email.toLowerCase() === user?.toLowerCase());
@@ -634,13 +634,45 @@ export default function App() {
 
     const isOvertime = checkIsOvertime(now, type);
 
+    let photoUrl = null;
+    
+    if (photoDataUrl) {
+      try {
+        const base64Data = photoDataUrl.split(',')[1];
+        const byteCharacters = atob(base64Data);
+        const byteNumbers = new Array(byteCharacters.length);
+        for (let i = 0; i < byteCharacters.length; i++) {
+          byteNumbers[i] = byteCharacters.charCodeAt(i);
+        }
+        const byteArray = new Uint8Array(byteNumbers);
+        const blob = new Blob([byteArray], { type: 'image/jpeg' });
+        
+        const fileName = `${currentEmployee.id}_${now.getTime()}.jpg`;
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from('punch_photos')
+          .upload(fileName, blob, {
+            contentType: 'image/jpeg'
+          });
+          
+        if (uploadData) {
+          const { data: urlData } = supabase.storage.from('punch_photos').getPublicUrl(fileName);
+          photoUrl = urlData.publicUrl;
+        }
+      } catch (err) {
+        console.error("Erro no upload da foto", err);
+      }
+    }
+
     const { data: newRecord, error } = await supabase.from('punch_records').insert({
       employee_id: currentEmployee.id,
       company_id: currentEmployee.company_id,
       type: type,
       timestamp: now.toISOString(),
       is_manual: false,
-      is_overtime: isOvertime
+      is_overtime: isOvertime,
+      latitude: location?.lat || null,
+      longitude: location?.lng || null,
+      photo_url: photoUrl
     }).select().single();
 
     if (newRecord) {

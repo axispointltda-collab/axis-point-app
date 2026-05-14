@@ -1,11 +1,12 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import { ptBR } from 'date-fns/locale';
 import { motion, AnimatePresence } from 'motion/react';
-import { Clock, Play, Square, Check, Coffee, Utensils, Moon, Sun, Zap } from 'lucide-react';
+import { Clock, Play, Square, Check, Coffee, Utensils, Moon, Sun, Zap, Camera, MapPin, X } from 'lucide-react';
+import Webcam from 'react-webcam';
 import { getBrasiliaNow, formatBrasilia } from '../lib/dateUtils';
 
 interface PunchClockProps {
-  onPunch: () => void;
+  onPunch: (photoDataUrl: string | null, location: { lat: number, lng: number } | null) => Promise<void>;
   isClockedIn: boolean;
   nextPunchLabel?: string;
   punchCount: number;
@@ -13,6 +14,10 @@ interface PunchClockProps {
 
 export default function PunchClock({ onPunch, isClockedIn, nextPunchLabel, punchCount }: PunchClockProps) {
   const [now, setNow] = useState(getBrasiliaNow());
+  const [showCamera, setShowCamera] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [locationStatus, setLocationStatus] = useState<'pending' | 'getting' | 'success' | 'error'>('pending');
+  const webcamRef = useRef<Webcam>(null);
 
   useEffect(() => {
     const timer = setInterval(() => setNow(getBrasiliaNow()), 1000);
@@ -26,10 +31,43 @@ export default function PunchClock({ onPunch, isClockedIn, nextPunchLabel, punch
   // Etapas da jornada com ícones
   const journeySteps = useMemo(() => [
     { label: "Começar Jornada", icon: <Play size={12} fill="currentColor" /> },
-    { label: `Entrada ${mealLabel}`, icon: isDayShift ? <Utensils size={12} /> : <Moon size={12} /> },
     { label: `Saída ${mealLabel}`, icon: isDayShift ? <Coffee size={12} /> : <Sun size={12} /> },
+    { label: `Retorno ${mealLabel}`, icon: isDayShift ? <Utensils size={12} /> : <Moon size={12} /> },
     { label: "Terminar Jornada", icon: <Square size={12} fill="currentColor" /> },
   ], [mealLabel, isDayShift]);
+
+  const handlePunchClick = () => {
+    setShowCamera(true);
+    setLocationStatus('pending');
+  };
+
+  const captureAndPunch = useCallback(async () => {
+    setIsProcessing(true);
+    setLocationStatus('getting');
+
+    let location = null;
+    try {
+      const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: true,
+          timeout: 5000,
+          maximumAge: 0
+        });
+      });
+      location = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+      setLocationStatus('success');
+    } catch (err) {
+      console.warn('GPS Error:', err);
+      setLocationStatus('error');
+    }
+
+    const photoSrc = webcamRef.current?.getScreenshot() || null;
+    
+    await onPunch(photoSrc, location);
+    
+    setIsProcessing(false);
+    setShowCamera(false);
+  }, [onPunch, webcamRef]);
 
   return (
     <div className="flex flex-col items-center gap-6 w-full max-w-sm">
@@ -94,7 +132,7 @@ export default function PunchClock({ onPunch, isClockedIn, nextPunchLabel, punch
 
       {/* Main Punch Button */}
       <motion.button
-        onClick={onPunch}
+        onClick={handlePunchClick}
         className="relative group w-full p-1"
         animate={!isClockedIn ? { 
           scale: [1, 1.02, 1],
@@ -196,6 +234,74 @@ export default function PunchClock({ onPunch, isClockedIn, nextPunchLabel, punch
           : isClockedIn ? 'Trabalhando Agora' : 'Ponto Aberto'
         }
       </motion.div>
+
+      {/* Camera Modal */}
+      <AnimatePresence>
+        {showCamera && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="bg-white w-full max-w-sm rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col"
+            >
+              <div className="p-6 pb-4 flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-serif font-black tracking-tight text-gray-900">
+                    Validação Facial
+                  </h3>
+                  <p className="text-[10px] uppercase tracking-widest font-bold text-gray-400">
+                    Por favor, olhe para a câmera
+                  </p>
+                </div>
+                <button 
+                  onClick={() => setShowCamera(false)}
+                  className="p-2 bg-gray-100 rounded-full text-gray-400 hover:text-gray-600 transition-colors"
+                  disabled={isProcessing}
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="relative w-full aspect-[3/4] bg-black overflow-hidden flex items-center justify-center">
+                <Webcam
+                  audio={false}
+                  ref={webcamRef}
+                  screenshotFormat="image/jpeg"
+                  videoConstraints={{ facingMode: "user" }}
+                  className="absolute min-w-full min-h-full object-cover"
+                />
+                
+                {/* Overlay UI */}
+                <div className="absolute inset-0 border-[6px] border-black/10 rounded-[2rem] pointer-events-none" />
+                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-48 h-64 border-2 border-white/40 rounded-[3rem] pointer-events-none" />
+                
+                {/* Status Indicator */}
+                {isProcessing && (
+                  <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center gap-4 text-white">
+                    <div className="w-12 h-12 border-4 border-white border-t-transparent rounded-full animate-spin" />
+                    <p className="text-sm font-bold uppercase tracking-widest">Processando...</p>
+                    {locationStatus === 'getting' && (
+                      <p className="text-[10px] text-gray-300 flex items-center gap-2"><MapPin size={12} /> Buscando localização</p>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <div className="p-6 bg-white">
+                <button
+                  onClick={captureAndPunch}
+                  disabled={isProcessing}
+                  className="w-full py-4 bg-[#1B9E9E] text-white rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-[#1a3551] transition-all shadow-lg shadow-teal-200/50 flex items-center justify-center gap-2"
+                >
+                  <Camera size={18} />
+                  Capturar & Bater Ponto
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
