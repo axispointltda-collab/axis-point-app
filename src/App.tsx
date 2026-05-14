@@ -72,12 +72,12 @@ interface FullPunchRecord extends PunchRecord {
 // Helpers para labels de ponto — State Machine rigorosa
 const getPunchLabel = (index: number) => {
   const hour = getBrasiliaNow().getHours();
-  const mealLabel = (hour >= 6 && hour <= 17) ? "do Almoço" : "da Janta";
+  const mealLabel = (hour >= 6 && hour <= 17) ? "Almoço" : "Janta";
 
   switch (index) {
     case 0: return "Começar Jornada";
-    case 1: return `Início ${mealLabel}`;
-    case 2: return `Fim ${mealLabel}`;
+    case 1: return `Saída ${mealLabel}`;
+    case 2: return `Retorno ${mealLabel}`;
     case 3: return "Terminar Jornada";
     default: return "Fazer Extra";
   }
