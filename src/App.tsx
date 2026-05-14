@@ -542,10 +542,45 @@ export default function App() {
     return records;
   }, [records]);
 
-  // Filtra apenas registros de HOJE para o botão de ponto
+  // Filtra os registros pertencentes à jornada atual (corrige bug de virada de noite 12x36)
   const todayRecords = useMemo(() => {
-    const today = getBrasiliaNow();
-    return myRecords.filter(r => isSameDay(r.timestamp, today));
+    if (myRecords.length === 0) return [];
+    const sorted = [...myRecords].sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime()); // oldest to newest
+    
+    let currentJourney: PunchRecord[] = [];
+    
+    for (let i = 0; i < sorted.length; i++) {
+      const record = sorted[i];
+      if (currentJourney.length === 0) {
+        currentJourney.push(record);
+      } else {
+        const lastRecord = currentJourney[currentJourney.length - 1];
+        const hoursDiff = (record.timestamp.getTime() - lastRecord.timestamp.getTime()) / (1000 * 60 * 60);
+        
+        // Nova jornada começa se bater 'in' após já ter 4 pontos OU se passou mais de 10 horas de intervalo
+        if ((currentJourney.length >= 4 && record.type === 'in') || hoursDiff > 10) {
+          currentJourney = [record];
+        } else {
+          currentJourney.push(record);
+        }
+      }
+    }
+    
+    if (currentJourney.length > 0) {
+      const lastRecord = currentJourney[currentJourney.length - 1];
+      const hoursSinceLastPunch = (getBrasiliaNow().getTime() - lastRecord.timestamp.getTime()) / (1000 * 60 * 60);
+      
+      // Se a jornada está fechada (par) e passou mais de 6h, reseta para a próxima
+      if (currentJourney.length % 2 === 0 && hoursSinceLastPunch > 6) {
+        return [];
+      }
+      // Se a pessoa esqueceu de bater o ponto e já passou mais de 24 horas, reseta
+      if (hoursSinceLastPunch > 24) {
+        return [];
+      }
+    }
+    
+    return currentJourney;
   }, [myRecords]);
 
   const isClockedIn = useMemo(() => {
