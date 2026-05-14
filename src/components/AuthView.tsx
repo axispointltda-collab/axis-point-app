@@ -227,6 +227,7 @@ export default function AuthView({ onLogin, companies, employees }: AuthViewProp
                       <input 
                         type="email" 
                         required
+                        autoComplete="username"
                         placeholder="exemplo@email.com"
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
@@ -245,6 +246,7 @@ export default function AuthView({ onLogin, companies, employees }: AuthViewProp
                       <input 
                         type={showPassword ? 'text' : 'password'} 
                         required
+                        autoComplete="current-password"
                         placeholder="••••••••"
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
