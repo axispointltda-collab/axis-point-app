@@ -1615,11 +1615,11 @@ export default function App() {
                                 {group.records.slice().reverse().map((record, index) => (
                                   <div key={record.id} className="bg-white p-5 rounded-[2rem] shadow-sm border border-gray-100 flex items-center justify-between group hover:border-[#1B9E9E] transition-all">
                                     <div className="flex items-center gap-4">
-                                      <div className={`p-2.5 rounded-xl text-white shadow-sm ${index % 2 === 0 ? 'bg-green-500' : 'bg-red-500'}`}>
-                                        {index % 2 === 0 ? <LogIn size={16} /> : <LogOut size={16} />}
+                                      <div className={`p-2.5 rounded-xl text-white shadow-sm ${index >= 4 ? (index % 2 === 0 ? 'bg-amber-400' : 'bg-amber-500') : (index % 2 === 0 ? 'bg-green-500' : 'bg-red-500')}`}>
+                                        {index >= 4 ? (index % 2 === 0 ? <TrendingUp size={16} /> : <TrendingDown size={16} />) : (index % 2 === 0 ? <LogIn size={16} /> : <LogOut size={16} />)}
                                       </div>
                                       <div>
-                                        <p className="text-sm font-bold text-gray-900 capitalize">{getPunchLabel(index)}</p>
+                                        <p className={`text-sm font-bold capitalize ${index >= 4 ? 'text-amber-600' : 'text-gray-900'}`}>{getPunchLabel(index)}</p>
                                         <div className="flex items-center gap-2">
                                           <p className="text-[10px] text-gray-400 uppercase font-black tracking-widest">{record.is_manual ? 'Registro Manual' : 'Ponto via App'}</p>
                                           {record.is_overtime && (
