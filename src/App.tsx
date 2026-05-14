@@ -28,7 +28,8 @@ import {
   AlertTriangle,
   Image as ImageIcon,
   Eye,
-  EyeOff
+  EyeOff,
+  Zap
 } from 'lucide-react';
 import { getBrasiliaNow, formatBrasilia } from './lib/dateUtils';
 import { supabase } from './supabase';
@@ -1282,6 +1283,51 @@ export default function App() {
                             </div>
                           </motion.div>
                         ))}
+                        {/* Resumo de horas do dia para o funcionário */}
+                        {(() => {
+                          const sortedDay = dayRecords.slice().sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+                          let worked = 0;
+                          let lastIn: Date | null = null;
+                          sortedDay.forEach(r => {
+                            if (r.type === 'in') lastIn = r.timestamp;
+                            else if (r.type === 'out' && lastIn) {
+                              worked += (r.timestamp.getTime() - lastIn.getTime()) / 60000;
+                              lastIn = null;
+                            }
+                          });
+                          const workedMins = Math.round(worked);
+                          if (workedMins <= 0 || sortedDay.length % 2 !== 0) return null;
+                          
+                          const currentEmployee = employees.find(e => e.email.toLowerCase() === user?.toLowerCase());
+                          let expectedMins = 0;
+                          if (currentEmployee) {
+                            if (currentEmployee.is_12x36) {
+                              expectedMins = 12 * 60;
+                            } else if (currentEmployee.work_start && currentEmployee.work_end) {
+                              const [sH, sM] = currentEmployee.work_start.split(':').map(Number);
+                              const [eH, eM] = currentEmployee.work_end.split(':').map(Number);
+                              expectedMins = (eH * 60 + eM) - (sH * 60 + sM);
+                              if (expectedMins < 0) expectedMins += 24 * 60;
+                              expectedMins -= (currentEmployee.lunch_duration || 60);
+                            }
+                          }
+                          const extra = workedMins - expectedMins;
+
+                          return (
+                            <div className="flex flex-wrap gap-2 mt-2">
+                              <div className="bg-[#f1f3f5] px-3 py-1.5 rounded-xl text-gray-600 text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5">
+                                <Clock size={11} className="text-[#1B9E9E]" />
+                                {Math.floor(workedMins / 60)}h {String(workedMins % 60).padStart(2, '0')}m
+                              </div>
+                              {expectedMins > 0 && extra !== 0 && (
+                                <div className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 ${extra > 0 ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'}`}>
+                                  <Zap size={11} />
+                                  {extra > 0 ? '+' : '-'}{Math.floor(Math.abs(extra) / 60)}h {String(Math.abs(extra) % 60).padStart(2, '0')}m
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </div>
                     ))
                   )}
@@ -1472,6 +1518,45 @@ export default function App() {
                           </div>
                         </div>
                       )}
+
+                      {/* Resumo Acumulado do Banco de Horas */}
+                      {employeeDetailedRecords.length > 0 && (() => {
+                        const completedJourneys = employeeDetailedRecords.filter((g: any) => g.workedMinutes > 0 && g.records.length % 2 === 0);
+                        const totalWorked = completedJourneys.reduce((acc: number, g: any) => acc + (g.workedMinutes || 0), 0);
+                        const totalExpected = completedJourneys.reduce((acc: number, g: any) => acc + (g.expectedMinutes || 0), 0);
+                        const totalExtra = totalWorked - totalExpected;
+                        const journeyCount = completedJourneys.length;
+                        
+                        return (
+                          <div className="bg-white rounded-[2rem] p-6 shadow-xl shadow-gray-200/50 border border-gray-100 no-print">
+                            <div className="flex items-center gap-2 mb-4">
+                              <Zap size={16} className="text-[#1B9E9E]" />
+                              <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-500">
+                                Banco de Horas — Resumo do Período
+                              </h4>
+                            </div>
+                            <div className="grid grid-cols-3 gap-4">
+                              <div className="bg-[#f1f3f5] rounded-2xl p-4 text-center">
+                                <p className="text-[9px] font-black uppercase tracking-widest text-gray-400 mb-1">Trabalhado</p>
+                                <p className="text-lg font-black text-gray-900">{Math.floor(totalWorked / 60)}h {String(totalWorked % 60).padStart(2, '0')}m</p>
+                              </div>
+                              <div className="bg-[#f1f3f5] rounded-2xl p-4 text-center">
+                                <p className="text-[9px] font-black uppercase tracking-widest text-gray-400 mb-1">Previsto</p>
+                                <p className="text-lg font-black text-gray-900">{Math.floor(totalExpected / 60)}h {String(totalExpected % 60).padStart(2, '0')}m</p>
+                              </div>
+                              <div className={`rounded-2xl p-4 text-center ${totalExtra >= 0 ? 'bg-green-50 border border-green-100' : 'bg-red-50 border border-red-100'}`}>
+                                <p className="text-[9px] font-black uppercase tracking-widest text-gray-400 mb-1">Saldo</p>
+                                <p className={`text-lg font-black ${totalExtra >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                  {totalExtra >= 0 ? '+' : '-'}{Math.floor(Math.abs(totalExtra) / 60)}h {String(Math.abs(totalExtra) % 60).padStart(2, '0')}m
+                                </p>
+                              </div>
+                            </div>
+                            <p className="text-[9px] text-gray-400 mt-3 text-center font-medium">
+                              Baseado em {journeyCount} jornada{journeyCount !== 1 ? 's' : ''} completa{journeyCount !== 1 ? 's' : ''} no período
+                            </p>
+                          </div>
+                        );
+                      })()}
 
                       <div className="space-y-8">
                         {employeeDetailedRecords.length === 0 ? (
