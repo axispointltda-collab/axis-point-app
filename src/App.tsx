@@ -82,7 +82,7 @@ const getPunchLabel = (index: number) => {
     case 1: return `Saída ${mealLabel}`;
     case 2: return `Retorno ${mealLabel}`;
     case 3: return "Terminar Jornada";
-    default: return "Fazer Extra";
+    default: return index % 2 === 0 ? "Começar Extra" : "Terminar Extra";
   }
 };
 
@@ -1253,11 +1253,11 @@ export default function App() {
                             className="flex items-center justify-between bg-white p-4 rounded-2xl shadow-sm border border-gray-100 group"
                           >
                             <div className="flex items-center gap-4">
-                              <div className={`p-2.5 rounded-xl text-white shadow-sm ${index % 2 === 0 ? 'bg-green-500' : 'bg-red-500'}`}>
-                                {index % 2 === 0 ? <LogIn size={18} /> : <LogOut size={18} />}
+                              <div className={`p-2.5 rounded-xl text-white shadow-sm ${index >= 4 ? (index % 2 === 0 ? 'bg-amber-400' : 'bg-amber-500') : (index % 2 === 0 ? 'bg-green-500' : 'bg-red-500')}`}>
+                                {index >= 4 ? (index % 2 === 0 ? <TrendingUp size={18} /> : <TrendingDown size={18} />) : (index % 2 === 0 ? <LogIn size={18} /> : <LogOut size={18} />)}
                               </div>
                               <div>
-                                <p className="text-sm font-bold text-gray-900 group-hover:text-[#1B9E9E] transition-colors">
+                                <p className={`text-sm font-bold transition-colors ${index >= 4 ? 'text-amber-600' : 'text-gray-900 group-hover:text-[#1B9E9E]'}`}>
                                   {getPunchLabel(index)}
                                 </p>
                                 <div className="flex items-center gap-2">
