@@ -1139,8 +1139,8 @@ export default function App() {
                             className="flex items-center justify-between bg-white p-4 rounded-2xl shadow-sm border border-gray-100 group"
                           >
                             <div className="flex items-center gap-4">
-                              <div className={`p-2.5 rounded-xl text-white shadow-sm ${record.type === 'in' ? 'bg-green-500' : 'bg-red-500'}`}>
-                                {record.type === 'in' ? <LogIn size={18} /> : <LogOut size={18} />}
+                              <div className={`p-2.5 rounded-xl text-white shadow-sm ${index % 2 === 0 ? 'bg-green-500' : 'bg-red-500'}`}>
+                                {index % 2 === 0 ? <LogIn size={18} /> : <LogOut size={18} />}
                               </div>
                               <div>
                                 <p className="text-sm font-bold text-gray-900 group-hover:text-[#1B9E9E] transition-colors">
@@ -1401,8 +1401,8 @@ export default function App() {
                                 {group.records.slice().reverse().map((record, index) => (
                                   <div key={record.id} className="bg-white p-5 rounded-[2rem] shadow-sm border border-gray-100 flex items-center justify-between group hover:border-[#1B9E9E] transition-all">
                                     <div className="flex items-center gap-4">
-                                      <div className={`p-2.5 rounded-xl text-white shadow-sm ${record.type === 'in' ? 'bg-green-500' : 'bg-red-500'}`}>
-                                        {record.type === 'in' ? <LogIn size={16} /> : <LogOut size={16} />}
+                                      <div className={`p-2.5 rounded-xl text-white shadow-sm ${index % 2 === 0 ? 'bg-green-500' : 'bg-red-500'}`}>
+                                        {index % 2 === 0 ? <LogIn size={16} /> : <LogOut size={16} />}
                                       </div>
                                       <div>
                                         <p className="text-sm font-bold text-gray-900 capitalize">{getPunchLabel(index)}</p>
