@@ -29,7 +29,9 @@ import {
   Image as ImageIcon,
   Eye,
   EyeOff,
-  Zap
+  Zap,
+  TrendingUp,
+  TrendingDown
 } from 'lucide-react';
 import { getBrasiliaNow, formatBrasilia } from './lib/dateUtils';
 import { supabase } from './supabase';
@@ -1321,7 +1323,7 @@ export default function App() {
                               </div>
                               {expectedMins > 0 && extra !== 0 && (
                                 <div className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 ${extra > 0 ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'}`}>
-                                  <Zap size={11} />
+                                  {extra > 0 ? <TrendingUp size={11} /> : <TrendingDown size={11} />}
                                   {extra > 0 ? '+' : '-'}{Math.floor(Math.abs(extra) / 60)}h {String(Math.abs(extra) % 60).padStart(2, '0')}m
                                 </div>
                               )}
