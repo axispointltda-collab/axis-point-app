@@ -917,11 +917,33 @@ export default function App() {
           lastIn = null;
         }
       });
+
+      // Cálculo Parcial: Se estiver logado agora, calcula até o momento atual
+      if (lastIn) {
+        const now = getBrasiliaNow();
+        const diffHours = (now.getTime() - lastIn.getTime()) / (1000 * 60 * 60);
+        // Só calcula parcial se for uma batida recente (menos de 16h atrás)
+        if (diffHours > 0 && diffHours < 16) {
+          workedMins += (now.getTime() - lastIn.getTime()) / 60000;
+        }
+      }
+      
       journey.workedMinutes = Math.round(workedMins);
       
       let expectedMins = 0;
+      let isRestDay = false;
+
       if (employee.is_12x36) {
-        expectedMins = 12 * 60;
+        // Lógica 12x36: Se trabalhou ontem, hoje é folga (esperado = 0)
+        const yesterday = subDays(journey.date, 1);
+        const workedYesterday = journeys.some(j => isSameDay(j.date, yesterday) && j !== journey && (j.workedMinutes || 0) > 0);
+        
+        if (workedYesterday) {
+          isRestDay = true;
+          expectedMins = 0;
+        } else {
+          expectedMins = 12 * 60;
+        }
       } else if (employee.work_start && employee.work_end) {
         const [startH, startM] = employee.work_start.split(':').map(Number);
         const [endH, endM] = employee.work_end.split(':').map(Number);
@@ -930,6 +952,7 @@ export default function App() {
         expectedMins -= minLunch;
       }
       
+      journey.isRestDay = isRestDay;
       journey.expectedMinutes = expectedMins;
       journey.extraMinutes = journey.workedMinutes - expectedMins;
     });
@@ -1297,14 +1320,30 @@ export default function App() {
                               lastIn = null;
                             }
                           });
+
+                          // Saldo Parcial para o histórico
+                          if (lastIn) {
+                            const now = getBrasiliaNow();
+                            const diffHours = (now.getTime() - lastIn.getTime()) / (1000 * 60 * 60);
+                            if (diffHours > 0 && diffHours < 16) {
+                              worked += (now.getTime() - lastIn.getTime()) / 60000;
+                            }
+                          }
+
                           const workedMins = Math.round(worked);
-                          if (workedMins <= 0 || sortedDay.length % 2 !== 0) return null;
+                          if (workedMins <= 0) return null;
                           
                           const currentEmployee = employees.find(e => e.email.toLowerCase() === user?.toLowerCase());
                           let expectedMins = 0;
                           if (currentEmployee) {
                             if (currentEmployee.is_12x36) {
-                              expectedMins = 12 * 60;
+                              // Verifica se trabalhou ontem para zerar o esperado (folga)
+                              const yesterday = subDays(sortedDay[0].timestamp, 1);
+                              const workedYesterday = allPunchRecords.some(r => 
+                                (r.employeeId === currentEmployee.id || r.employee_id === currentEmployee.id) && 
+                                isSameDay(new Date(r.timestamp), yesterday)
+                              );
+                              expectedMins = workedYesterday ? 0 : 12 * 60;
                             } else if (currentEmployee.work_start && currentEmployee.work_end) {
                               const [sH, sM] = currentEmployee.work_start.split(':').map(Number);
                               const [eH, eM] = currentEmployee.work_end.split(':').map(Number);
@@ -1523,11 +1562,11 @@ export default function App() {
 
                       {/* Resumo Acumulado do Banco de Horas */}
                       {employeeDetailedRecords.length > 0 && (() => {
-                        const completedJourneys = employeeDetailedRecords.filter((g: any) => g.workedMinutes > 0 && g.records.length % 2 === 0);
-                        const totalWorked = completedJourneys.reduce((acc: number, g: any) => acc + (g.workedMinutes || 0), 0);
-                        const totalExpected = completedJourneys.reduce((acc: number, g: any) => acc + (g.expectedMinutes || 0), 0);
+                        const journeysToSum = employeeDetailedRecords.filter((g: any) => g.workedMinutes > 0);
+                        const totalWorked = journeysToSum.reduce((acc: number, g: any) => acc + (g.workedMinutes || 0), 0);
+                        const totalExpected = journeysToSum.reduce((acc: number, g: any) => acc + (g.expectedMinutes || 0), 0);
                         const totalExtra = totalWorked - totalExpected;
-                        const journeyCount = completedJourneys.length;
+                        const journeyCount = journeysToSum.length;
                         
                         return (
                           <div className="bg-white rounded-[2rem] p-6 shadow-xl shadow-gray-200/50 border border-gray-100 no-print">
@@ -1554,7 +1593,7 @@ export default function App() {
                               </div>
                             </div>
                             <p className="text-[9px] text-gray-400 mt-3 text-center font-medium">
-                              Baseado em {journeyCount} jornada{journeyCount !== 1 ? 's' : ''} completa{journeyCount !== 1 ? 's' : ''} no período
+                              Baseado em {journeyCount} jornada{journeyCount !== 1 ? 's' : ''} registrada{journeyCount !== 1 ? 's' : ''} no período
                             </p>
                           </div>
                         );
