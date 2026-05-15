@@ -27,7 +27,7 @@ interface CalendarProps {
 export default function Calendar({ selectedDate, onDateSelect, recordedDays = [] }: CalendarProps) {
   const [currentMonth, setCurrentMonth] = useState(getBrasiliaNow());
   const [showYearPicker, setShowYearPicker] = useState(false);
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(true);
 
   const prevMonth = () => setCurrentMonth(subMonths(currentMonth, 1));
   const nextMonth = () => setCurrentMonth(addMonths(currentMonth, 1));
