@@ -13,7 +13,7 @@ import {
   setYear,
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronDown } from 'lucide-react';
 import { useState } from 'react';
 import { motion } from 'motion/react';
 import { getBrasiliaNow } from '../lib/dateUtils';
@@ -27,16 +27,17 @@ interface CalendarProps {
 export default function Calendar({ selectedDate, onDateSelect, recordedDays = [] }: CalendarProps) {
   const [currentMonth, setCurrentMonth] = useState(getBrasiliaNow());
   const [showYearPicker, setShowYearPicker] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(false);
 
   const prevMonth = () => setCurrentMonth(subMonths(currentMonth, 1));
   const nextMonth = () => setCurrentMonth(addMonths(currentMonth, 1));
 
   const renderHeader = () => {
     return (
-      <div className="flex items-center justify-between px-4 py-4 border-b border-gray-100">
+      <div className="flex items-center justify-between px-4 py-4 border-b border-gray-100 cursor-pointer select-none" onClick={() => setIsCollapsed(!isCollapsed)}>
         <div className="flex flex-col">
           <button 
-            onClick={() => setShowYearPicker(!showYearPicker)}
+            onClick={(e) => { e.stopPropagation(); setShowYearPicker(!showYearPicker); }}
             className="text-left group"
           >
               <h2 className="text-2xl font-serif font-black tracking-tight text-gray-900 flex items-center gap-2 group-hover:text-[#1B9E9E] transition-colors">
@@ -46,22 +47,33 @@ export default function Calendar({ selectedDate, onDateSelect, recordedDays = []
             </h2>
           </button>
           <p className="text-[10px] uppercase tracking-[0.2em] font-bold text-gray-400 mt-0.5">
-            Selecione uma data para ver registros
+            {isCollapsed ? 'Toque para expandir o calendário' : 'Selecione uma data para ver registros'}
           </p>
         </div>
         <div className="flex items-center gap-1">
-          <button 
-            onClick={prevMonth}
-            className="p-2 hover:bg-gray-100 rounded-full transition-colors text-gray-600"
+          {!isCollapsed && (
+            <>
+              <button 
+                onClick={(e) => { e.stopPropagation(); prevMonth(); }}
+                className="p-2 hover:bg-gray-100 rounded-full transition-colors text-gray-600"
+              >
+                <ChevronLeft size={20} />
+              </button>
+              <button 
+                onClick={(e) => { e.stopPropagation(); nextMonth(); }}
+                className="p-2 hover:bg-gray-100 rounded-full transition-colors text-gray-600"
+              >
+                <ChevronRight size={20} />
+              </button>
+            </>
+          )}
+          <motion.div
+            animate={{ rotate: isCollapsed ? 0 : 180 }}
+            transition={{ duration: 0.3 }}
+            className="p-1 text-gray-400"
           >
-            <ChevronLeft size={20} />
-          </button>
-          <button 
-            onClick={nextMonth}
-            className="p-2 hover:bg-gray-100 rounded-full transition-colors text-gray-600"
-          >
-            <ChevronRight size={20} />
-          </button>
+            <ChevronDown size={18} />
+          </motion.div>
         </div>
       </div>
     );
@@ -173,13 +185,23 @@ export default function Calendar({ selectedDate, onDateSelect, recordedDays = []
   return (
     <div className="bg-white rounded-[2rem] shadow-xl shadow-gray-200/50 overflow-hidden border border-gray-100">
       {renderHeader()}
-      {showYearPicker && renderYearPicker()}
-      {!showYearPicker && (
-        <>
-          {renderDays()}
-          {renderCells()}
-        </>
-      )}
+      <motion.div
+        initial={false}
+        animate={{ 
+          height: isCollapsed ? 0 : 'auto',
+          opacity: isCollapsed ? 0 : 1
+        }}
+        transition={{ duration: 0.3, ease: 'easeInOut' }}
+        className="overflow-hidden"
+      >
+        {showYearPicker && renderYearPicker()}
+        {!showYearPicker && (
+          <>
+            {renderDays()}
+            {renderCells()}
+          </>
+        )}
+      </motion.div>
     </div>
   );
 }
