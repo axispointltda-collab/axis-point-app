@@ -1623,7 +1623,6 @@ export default function App() {
                                     Almoço: {group.lunchDuration} min
                                   </div>
                                 )}
-                                </div>
                               </div>
 
                               <div className="space-y-3">
