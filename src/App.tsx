@@ -1086,8 +1086,9 @@ export default function App() {
           </div>
         </div>
 
-        {/* Header */}
-        <header className="flex items-center justify-between no-print">
+        {/* Header + Nav Sticky */}
+        <div className="sticky top-0 z-30 bg-[#f1f3f5]/80 backdrop-blur-xl -mx-2 sm:-mx-6 md:-mx-8 lg:-mx-12 px-2 sm:px-6 md:px-8 lg:px-12 pt-2 pb-3 space-y-3 no-print">
+        <header className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-12 h-12 flex items-center justify-center">
               <img src="/logo.png" alt="AxisPoint" className="w-full h-full object-contain" />
@@ -1206,6 +1207,7 @@ export default function App() {
             </button>
           )}
         </nav>
+        </div>
 
         {/* Content Area */}
         <main className="flex-1 space-y-8">
